@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "cinii-mcp: An MCP server for the CiNii Research API"
+abstract: >-
+  A FastMCP stdio server that exposes the CiNii Research API (National
+  Institute of Informatics) as seven tools for AI clients: search of
+  articles, books, dissertations, KAKEN projects, researchers, a cross-type
+  search, and single-record lookup over Japanese-language scholarship.
+authors:
+  - family-names: Gerteis
+    given-names: Christopher
+    affiliation: "SOAS University of London"
+    orcid: "https://orcid.org/0000-0003-4977-6152"
+version: 1.0.0
+date-released: 2026-06-25
+license: MIT
+repository-code: "https://github.com/ckgerteis/cinii-mcp"
+url: "https://www.christophergerteis.net"
+keywords:
+  - Model Context Protocol
+  - MCP
+  - CiNii
+  - Japanese studies
+  - East Asian studies
+  - digital humanities
+  - bibliographic search
+  - scholarly metadata
