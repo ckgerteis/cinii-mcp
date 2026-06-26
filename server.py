@@ -143,18 +143,37 @@ def _format_item(item: dict) -> str:
     return "\n".join(parts)
 
 
-def _format_results(data: dict, label: str) -> str:
-    """Format CiNii search response into readable text."""
+def _format_results(data: dict, label: str, query: Optional[dict] = None) -> str:
+    """Format CiNii search response into readable text.
+
+    When `query` is supplied, the issued search terms are echoed back for
+    reproducibility, and a zero-result response carries guidance on why a
+    CiNii search can return nothing even when related work exists.
+    """
+    q_line = ""
+    if query:
+        shown = {k: v for k, v in query.items() if k not in ("appid", "format")}
+        q_line = f"Query: {shown}\n"
+
     if "error" in data:
-        return f"Error: {data['error']}"
+        return f"{q_line}Error: {data['error']}"
 
     items = data.get("items", [])
     total = data.get("opensearch:totalResults", "?")
 
     if not items:
-        return f"No {label} results found."
+        return (
+            f"{q_line}No {label} results found for this query. "
+            "CiNii matches catalogued metadata and treats a multi-word query as a "
+            "conjunction (AND), so a compound it has not indexed returns zero even "
+            "when related work exists. Treat a zero as a signal to vary the search "
+            "and not as proof that the literature is absent: try a single key term, "
+            "an alternative Japanese rendering (literal, emic, or combined), or a "
+            "broader query, and tell the user which terms were searched. J-STAGE, "
+            "which searches full text, may return results for the same string."
+        )
 
-    lines = [f"**{label}** — {total} total results, showing {len(items)}\n"]
+    lines = [f"{q_line}**{label}** — {total} total results, showing {len(items)}\n"]
     for i, item in enumerate(items, 1):
         lines.append(f"---\n{i}. {_format_item(item)}")
 
@@ -276,7 +295,17 @@ def _build_params(base: dict, extra: dict) -> dict:
     annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
 )
 async def cinii_search_articles(params: ArticleSearchInput) -> str:
-    """Search CiNii Research for journal articles. Aggregates results from JALC, Crossref, PubMed, IRDB, and other sources. Supports filtering by title, author, journal, year range, and data source."""
+    """Search CiNii Research for journal articles. Aggregates results from JALC, Crossref, PubMed, IRDB, and other sources. Supports filtering by title, author, journal, year range, and data source.
+
+    Matching logic to weigh when reading the count: CiNii searches catalogued
+    metadata and treats a multi-word `query` as a conjunction (AND), so a
+    compound it has not indexed returns zero even when related work exists. A
+    zero is a signal to vary the search and not proof the literature is absent;
+    try a single key term, an alternative Japanese rendering (literal, emic, or
+    combined), or a broader query, and report which Japanese terms were
+    searched. The same string may behave very differently on J-STAGE, which
+    searches full text; the divergence is a property of the platforms.
+    """
     qp = _build_params(
         {"q": params.query, "count": params.count, "start": params.start,
          "sortorder": params.sort.value, "lang": params.lang.value},
@@ -284,7 +313,7 @@ async def cinii_search_articles(params: ArticleSearchInput) -> str:
          "from": params.from_year, "until": params.to_year, "dataSourceType": params.data_source},
     )
     data = await _cinii_request("articles", qp)
-    return _format_results(data, "CiNii Articles")
+    return _format_results(data, "CiNii Articles", query=qp)
 
 
 @mcp.tool(
@@ -299,7 +328,7 @@ async def cinii_search_books(params: BookSearchInput) -> str:
          "isbn": params.isbn, "from": params.from_year, "until": params.to_year},
     )
     data = await _cinii_request("books", qp)
-    return _format_results(data, "CiNii Books")
+    return _format_results(data, "CiNii Books", query=qp)
 
 
 @mcp.tool(
@@ -313,7 +342,7 @@ async def cinii_search_dissertations(params: DissertationSearchInput) -> str:
         {"creator": params.author, "from": params.from_year, "until": params.to_year},
     )
     data = await _cinii_request("dissertations", qp)
-    return _format_results(data, "CiNii Dissertations")
+    return _format_results(data, "CiNii Dissertations", query=qp)
 
 
 @mcp.tool(
@@ -328,7 +357,7 @@ async def cinii_search_kaken(params: KakenSearchInput) -> str:
          "from": params.from_year, "until": params.to_year},
     )
     data = await _cinii_request("projects", qp)
-    return _format_results(data, "KAKEN Projects")
+    return _format_results(data, "KAKEN Projects", query=qp)
 
 
 @mcp.tool(
@@ -342,7 +371,7 @@ async def cinii_search_all(params: CrossSearchInput) -> str:
         {"from": params.from_year, "until": params.to_year},
     )
     data = await _cinii_request("all", qp)
-    return _format_results(data, "CiNii Cross-Search")
+    return _format_results(data, "CiNii Cross-Search", query=qp)
 
 
 @mcp.tool(
