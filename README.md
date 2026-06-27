@@ -4,6 +4,13 @@ A FastMCP stdio server exposing the [CiNii Research API](https://support.nii.ac.
 
 CiNii Research aggregates metadata from KAKEN, CiNii Articles, CiNii Books, IRDB, Crossref, DataCite, PubMed, and NDL Search. There is no established open MCP tooling for it, so this server fills that gap for researchers querying Japanese-language scholarship.
 
+> **v2 is a breaking change.** Every tool now returns one structured JSON
+> *response envelope* (shared with [jstage-mcp](https://github.com/ckgerteis/jstage-mcp))
+> instead of v1's formatted markdown text. The envelope moves the interpretation
+> keys — how a query was matched, how broad the result is, what script was
+> searched — into typed fields. See **Response format** below. v2 also ships a
+> companion `mediation.py` that must sit beside `server.py`.
+
 ## Tools
 
 | Tool | Purpose |
@@ -16,7 +23,40 @@ CiNii Research aggregates metadata from KAKEN, CiNii Articles, CiNii Books, IRDB
 | `cinii_search_researchers` | Researcher profiles and affiliations |
 | `cinii_get_record` | Single record lookup by URL or CRID |
 
-Results come from the CiNii Research OpenSearch v2 API as JSON-LD, formatted into readable text with titles, authors, source, date, DOI, and links.
+Records are drawn from the CiNii Research OpenSearch v2 API; `cinii_get_record`
+resolves a single record from its JSON-LD representation (`/crid/<id>.json`).
+
+## Response format
+
+Every tool returns the unified envelope:
+
+```jsonc
+{
+  "server": "cinii",
+  "operation": "search_articles",
+  "query": { "input_terms": "...", "normalized": "...",
+             "script": "han|kana|han_kana|latin|mixed", "params": { ... } },
+  "matching_mode": "metadata_conjunction",   // CiNii ANDs catalogued metadata
+  "result": { "total": 0, "returned": 0, "start": 1,
+              "breadth": "none|narrow|broad|very_broad" },
+  "items": [ { "title": {"ja":..,"en":..,"romanized":..},
+               "authors": [{"ja":..,"en":..}],
+               "source": {"journal_ja":..,"journal_en":..,"volume":..,"issue":..,"pages":..,"year":..},
+               "ids": {"doi":..,"crid":..,"naid":..,"url_ja":..,"url_en":..},
+               "matched_in": "metadata", "record_type": "article|book|dissertation|project|researcher" } ],
+  "diagnostics": [ { "level": "info|warning|error", "code": "...", "message": "...", "hint": "..." } ],
+  "coverage_note": "...|null",
+  "suggestions": [ { "action": "...", "reason": "..." } ],
+  "receipt": { "issued_at": "<ISO-8601>", "query_hash": "sha256:...", "result_ids": [ ... ] },
+  "attribution": "Data via CiNii Research, National Institute of Informatics (NII)."
+}
+```
+
+Diagnostic codes: `OK`, `ZERO_CONJUNCTION` (a multi-word metadata query ANDed to
+nothing — vary the rendering), `SCRIPT_LATIN_QUERY` (a romaji query matched only
+the Latin-script metadata; re-issue in kanji/kana for the Japanese corpus),
+`API_ERROR`, `TRANSPORT_ERROR`. The `receipt` is designed to be logged so a
+search can be reconstructed.
 
 ## Prerequisites
 
@@ -35,10 +75,12 @@ The same application ID also works for the KAKEN API, which `cinii_search_kaken`
 
 ## Install
 
-The server is single-file with three runtime dependencies. Use a dedicated virtual environment.
+The server is `server.py` plus a companion `mediation.py` (the shared response
+envelope; pure standard library, no extra dependency). **Both files must live in
+the same directory.** Use a dedicated virtual environment.
 
 ```powershell
-# from the directory containing server.py
+# from the directory containing server.py and mediation.py
 py -3.11 -m venv .venv
 .venv\Scripts\activate
 pip install -e .
