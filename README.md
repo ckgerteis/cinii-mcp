@@ -4,7 +4,7 @@ A FastMCP stdio server exposing the [CiNii Research API](https://support.nii.ac.
 
 CiNii Research aggregates metadata from KAKEN, CiNii Articles, CiNii Books, IRDB, Crossref, DataCite, PubMed, and NDL Search. There is no established open MCP tooling for it, so this server fills that gap for researchers querying Japanese-language scholarship.
 
-> **v2 is a breaking change.** Every tool now returns one structured JSON
+> In **v2**, every tool now returns one structured JSON
 > *response envelope* (shared with [jstage-mcp](https://github.com/ckgerteis/jstage-mcp))
 > instead of v1's formatted markdown text. The envelope moves the interpretation
 > keys — how a query was matched, how broad the result is, what script was
