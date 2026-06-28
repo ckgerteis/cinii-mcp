@@ -21,7 +21,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "2.1.0"
 
 # Unicode blocks used for script detection.
 _HIRA = (0x3040, 0x309F)
@@ -173,13 +173,19 @@ def build_envelope(
         total_i = int(total)
     except (TypeError, ValueError):
         total_i = 0
+    script = detect_script(normalized)
     env: dict[str, Any] = {
         "server": server,
         "operation": operation,
+        "searched_for": {
+            "term": normalized,
+            "script": script,
+            "matching": matching_mode,
+        },
         "query": {
             "input_terms": input_terms,
             "normalized": normalized,
-            "script": detect_script(normalized),
+            "script": script,
             "params": params,
         },
         "matching_mode": matching_mode,
@@ -196,6 +202,8 @@ def build_envelope(
         "receipt": make_receipt(normalized, params, items),
         "attribution": attribution,
     }
+    if not operation.startswith("search"):
+        env.pop("searched_for", None)  # fetch ops (get_record, resolve_doi) chose no term
     if suggestions:
         env["suggestions"] = suggestions
     return env
