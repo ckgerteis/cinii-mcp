@@ -1,5 +1,7 @@
 # cinii-mcp
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20999897.svg)](https://doi.org/10.5281/zenodo.20999897)
+
 A FastMCP stdio server exposing the [CiNii Research API](https://support.nii.ac.jp/en/cinii/api/api_outline) — Japan's national academic database, operated by the National Institute of Informatics (NII) — as seven tools for use with Claude Desktop and other MCP clients.
 
 CiNii Research aggregates metadata from KAKEN, CiNii Articles, CiNii Books, IRDB, Crossref, DataCite, PubMed, and NDL Search. There is no established open MCP tooling for it, so this server fills that gap for researchers querying Japanese-language scholarship.
