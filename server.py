@@ -1,5 +1,5 @@
 """
-CiNii Research MCP Server
+CiNii Research MCP Server (v2.0.0)
 ==================================
 An MCP server for searching Japan's national academic information database
 (CiNii Research), operated by the National Institute of Informatics (NII).
@@ -23,11 +23,14 @@ from typing import Optional
 
 import httpx
 from pydantic import BaseModel, Field, ConfigDict
-from mcp.server.fastmcp import FastMCP
+try:  # mcp SDK 1.x
+    from mcp.server.fastmcp import FastMCP as _MCPServer
+except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
+    from mcp.server.mcpserver import MCPServer as _MCPServer
 
 import mediation as M
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 # ==============================================================================
 # Configuration
@@ -44,7 +47,7 @@ ARTICLE_COVERAGE_NOTE = (
     "foundational studies may sit in cinii_search_books."
 )
 
-mcp = FastMCP("cinii_mcp")
+mcp = _MCPServer("cinii_mcp")
 
 
 class SortOrder(str, Enum):
@@ -302,7 +305,7 @@ def _envelope(
         items=items, diagnostics=ds, attribution=ATTRIBUTION,
         coverage_note=coverage, suggestions=suggestions,
     )
-    return M.dumps(env)
+    return M.emit(env)
 
 
 def _build_params(base: dict, extra: dict) -> dict:
@@ -510,7 +513,7 @@ async def cinii_get_record(params: RecordLookupInput) -> str:
         params={"record_url": params.record_url}, matching_mode=MATCHING_MODE, total=total, start=1,
         items=items, diagnostics=ds, attribution=ATTRIBUTION,
     )
-    return M.dumps(env)
+    return M.emit(env)
 
 
 if __name__ == "__main__":

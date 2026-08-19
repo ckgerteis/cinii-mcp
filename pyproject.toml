@@ -1,6 +1,6 @@
 [project]
 name = "cinii-mcp"
-version = "2.1.0"
+version = "2.2.0"
 description = "MCP stdio server for the CiNii Research API (Japanese scholarship)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,6 +32,13 @@ Repository = "https://github.com/ckgerteis/cinii-mcp"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# The whole project is flat: server.py, mediation.py and ledger.py sit at the
+# root. `packages = ["."]` with an `include` list does NOT constrain the wheel —
+# `include` filters within the selected root rather than replacing it — so it
+# shipped the entire directory into site-packages. `only-include` selects.
+#
+# ledger.py MUST be listed. Omitting it does not fail the build: mediation.py
+# catches the ImportError, sets _ledger = None, and every query goes unrecorded
+# with no error to notice.
 [tool.hatch.build.targets.wheel]
-packages = ["."]
-include = ["server.py", "mediation.py"]
+only-include = ["server.py", "mediation.py", "ledger.py"]
