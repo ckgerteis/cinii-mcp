@@ -16,7 +16,49 @@ CiNii Research aggregates metadata from KAKEN, CiNii Articles, CiNii Books, IRDB
 | `cinii_search_researchers` | Researcher profiles and affiliations |
 | `cinii_get_record` | Single record lookup by URL or CRID |
 
-Results come from the CiNii Research OpenSearch v2 API as JSON-LD, formatted into readable text with titles, authors, source, date, DOI, and links.
+Results come from the CiNii Research OpenSearch v2 API as JSON-LD and are returned as one typed JSON response envelope — see [Response format](#response-format) below. (Releases before v2.0.1 returned formatted markdown text; that is a breaking change, not a formatting preference.)
+
+## Response format
+
+Every tool returns one JSON response envelope, built by `mediation.py` and defined in [`response-schema.json`](response-schema.json). Schema version 2.2.0. The same module and schema are vendored byte-identically across the server family, so an envelope from one server can be read by a consumer written for another.
+
+The envelope reports how the search was made, not only what it found:
+
+- **`searched_for`** — on search operations, the term actually sent, its detected script, and the matching mode, hoisted to the top of the envelope so a relaying client cannot drop it. Fetch operations (`cinii_get_record`) omit it: they were handed an identifier and chose no term.
+- **`query`** — `input_terms` as supplied, `normalized` as sent, and the detected `script`. This pair is the record of any rendering performed between the caller's language and the corpus.
+- **`matching_mode`** — `metadata_conjunction` for this server. It tells you how to read `result.total`.
+- **`result.breadth`** — `none`, `narrow` (1–50), `broad` (51–1000), `very_broad` (>1000). Thresholds are low on purpose: a few hundred hits that look like a literature are marked rather than passed through clean.
+- **`items[].matched_in`** — which field the match was made in, per record.
+- **`receipt`** — an ISO 8601 timestamp, a SHA-256 taken over the normalised query and its parameters, and the identifiers returned. The hash verifies a term you already hold; it cannot be inverted to produce one, so the unit of deposit is the envelope, not the receipt.
+- **`attribution`** — the required credit line, in every response.
+
+### Diagnostic codes
+
+Typed and closed. A diagnostic is never prose the client has to parse.
+
+| Code | Level | Meaning |
+| --- | --- | --- |
+| `OK` | info | Records returned; nothing to flag. |
+| `ZERO_CONJUNCTION` | warning | No records. CiNii matches catalogued metadata and ANDs a multi-word query, so an un-indexed compound returns zero even where related work exists. Vary the rendering before concluding the literature is absent. |
+| `SCRIPT_LATIN_QUERY` | warning | The query was Latin-script, so it matched romanised and English metadata only. The Japanese-script form reaches a different, larger corpus. |
+| `API_ERROR` | error | The API answered, and answered with an error. |
+| `TRANSPORT_ERROR` | error | The request did not complete. Kept distinct from `API_ERROR` because a failed search has an unknown result and must never be written up as an absence. |
+
+### Query receipts
+
+Every envelope can be deposited to an append-only, hash-chained JSONL log by `ledger.py`. It is **off unless `MCP_RECEIPT_LOG` is set**, and a logging failure is swallowed rather than raised — a search matters more than the record of it. Secrets are redacted before a line is composed.
+
+```
+MCP_RECEIPT_LOG=C:\path\to\receipts.jsonl
+MCP_RECEIPT_SESSION=project-or-article-slug
+MCP_RECEIPT_STRICT=1        # optional: make logging failure raise
+```
+
+Verify a deposited log's hash chain:
+
+```bash
+python ledger.py verify receipts.jsonl
+```
 
 ## Prerequisites
 

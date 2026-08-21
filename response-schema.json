@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MCP server family response envelope",
+  "description": "The unified response envelope emitted by mediation.build_envelope, vendored byte-identically into cinii-mcp, jstage-mcp, ndl-mcp and korea-scholarship-mcp. Schema version 2.2.0. Every interpretation key is a typed field, never prose: the envelope reports what was searched and how the result set should be read, and never composes a summary or a relevance score. Diagnostic codes are a closed per-server registry documented in each README, so `code` is constrained here only as a string.",
+  "type": "object",
+  "required": [
+    "server",
+    "schema_version",
+    "operation",
+    "query",
+    "matching_mode",
+    "result",
+    "items",
+    "diagnostics",
+    "coverage_note",
+    "receipt",
+    "attribution"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "server": {
+      "type": "string",
+      "description": "Short server identifier, e.g. 'cinii', 'jstage', 'ndl', 'kci'."
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Version of this envelope schema, not of the server package.",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "operation": {
+      "type": "string",
+      "description": "The tool operation that produced the envelope, e.g. 'search_articles', 'get_record', 'resolve_doi', 'list_issues'. Operations whose name begins 'search' chose a term; the rest were handed an identifier."
+    },
+    "searched_for": {
+      "type": "object",
+      "description": "Headline: the term actually sent to the database, hoisted to the top of the envelope so it is not lost when an assistant relays results. Present on search operations only; fetch operations omit it because no term was chosen.",
+      "required": ["term", "script", "matching"],
+      "additionalProperties": false,
+      "properties": {
+        "term": {
+          "type": "string",
+          "description": "The normalised query string as sent, not as typed."
+        },
+        "script": { "$ref": "#/$defs/script" },
+        "matching": {
+          "type": "string",
+          "description": "Same value as the envelope's matching_mode; repeated here so the headline stands alone."
+        }
+      }
+    },
+    "query": {
+      "type": "object",
+      "required": ["input_terms", "normalized", "script", "params"],
+      "additionalProperties": false,
+      "properties": {
+        "input_terms": {
+          "type": ["string", "null"],
+          "description": "What the caller supplied, before normalisation."
+        },
+        "normalized": {
+          "type": ["string", "null"],
+          "description": "What was actually sent to the API. This, with `script`, is the record of any rendering the assistant performed between the caller's language and the corpus."
+        },
+        "script": { "$ref": "#/$defs/script" },
+        "params": {
+          "type": "object",
+          "description": "Request parameters as issued, with credential-bearing keys stripped by the caller before the envelope is built.",
+          "additionalProperties": true
+        }
+      }
+    },
+    "matching_mode": {
+      "type": "string",
+      "description": "How the source matched the query, e.g. 'metadata_conjunction' (CiNii), 'full_text_broad' (J-STAGE), 'harvest_window_filter' (OAI windows). It tells the reader how to interpret result.total and result.breadth."
+    },
+    "result": {
+      "type": "object",
+      "required": ["total", "returned", "start", "breadth"],
+      "additionalProperties": false,
+      "properties": {
+        "total": {
+          "type": "integer",
+          "description": "Whatever the source reported. Where a source reports no total, the caller passes the size of the window actually yielded and raises a truncation diagnostic, so a returned count is never mistaken for a corpus count."
+        },
+        "returned": { "type": "integer", "minimum": 0 },
+        "start": { "type": "integer" },
+        "breadth": {
+          "type": "string",
+          "enum": ["none", "narrow", "broad", "very_broad"],
+          "description": "Graduated set-size signal: none (0), narrow (1-50), broad (51-1000), very_broad (>1000). Thresholds are deliberately low so a few hundred hits that look like a literature are marked rather than passed through clean."
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "description": "May be empty. An empty array with a zero-result diagnostic is a successful nil search, not an error.",
+      "items": { "$ref": "#/$defs/item" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/diagnostic" }
+    },
+    "coverage_note": {
+      "type": ["string", "null"],
+      "description": "Free-text statement of what the corpus does and does not cover, where the source's coverage would otherwise be read as the field's."
+    },
+    "receipt": { "$ref": "#/$defs/receipt" },
+    "attribution": {
+      "type": "string",
+      "description": "The credit line the data provider's terms require, carried in every response."
+    },
+    "suggestions": {
+      "type": "array",
+      "description": "Optional. Alternative queries offered to the caller; present only when the server has one to make.",
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  },
+  "$defs": {
+    "script": {
+      "type": "string",
+      "enum": ["latin", "kana", "han", "han_kana", "hangul", "han_hangul", "mixed"],
+      "description": "Dominant script of the normalised query. Digits, whitespace and punctuation are ignored; an empty string reports 'latin' as the n/a case. A 'latin' value against a Japanese or Korean corpus is the romanisation trap and raises SCRIPT_LATIN_QUERY."
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["level", "code", "message", "hint"],
+      "additionalProperties": false,
+      "properties": {
+        "level": { "type": "string", "enum": ["info", "warning", "error"] },
+        "code": {
+          "type": "string",
+          "description": "A member of the server's closed diagnostic registry, documented in its README."
+        },
+        "message": { "type": "string" },
+        "hint": { "type": ["string", "null"] }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "description": "Loggable and citable: a stable hash over the normalised query and its parameters, plus the identifiers returned. The hash verifies a term already held; it cannot be inverted to produce one, so a deposit of receipts alone deposits nothing re-runnable. The unit of deposit is the envelope.",
+      "required": ["issued_at", "query_hash", "result_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "issued_at": {
+          "type": "string",
+          "description": "ISO 8601 timestamp, seconds precision, local offset."
+        },
+        "query_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "SHA-256 over a deterministic JSON serialisation of {q: normalized, params}."
+        },
+        "result_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "First available identifier per item, in order: doi, kci_id, crid, naid, oai_id. Items carrying none are omitted, so this array may be shorter than items."
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["title", "authors", "source", "ids", "matched_in", "record_type", "extra"],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "object",
+          "required": ["ko", "ja", "en", "romanized"],
+          "additionalProperties": false,
+          "properties": {
+            "ko": { "type": ["string", "null"] },
+            "ja": { "type": ["string", "null"] },
+            "en": { "type": ["string", "null"] },
+            "romanized": {
+              "type": ["string", "null"],
+              "description": "Null unless the source supplies a romanisation. The servers do not generate one: a machine-transliterated string presented as bibliographic data is a fabrication with the shape of a fact."
+            }
+          }
+        },
+        "authors": {
+          "type": "array",
+          "description": "Author objects are passed through by make_item, so their shape is set by the caller and is deliberately open. Two shapes are in use in the family: the Japanese servers emit {ja, en}; korea-scholarship-mcp emits {name, name_en, affiliation, orcid}. The properties below are typed where they appear; a server may add its own.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "ko": { "type": ["string", "null"] },
+              "ja": { "type": ["string", "null"] },
+              "en": { "type": ["string", "null"] },
+              "romanized": { "type": ["string", "null"] },
+              "name": { "type": ["string", "null"] },
+              "name_en": { "type": ["string", "null"] },
+              "affiliation": { "type": ["string", "null"] },
+              "orcid": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "source": {
+          "type": "object",
+          "required": ["journal_ko", "journal_ja", "journal_en", "volume", "issue", "pages", "year", "holding_org"],
+          "additionalProperties": false,
+          "properties": {
+            "journal_ko": { "type": ["string", "null"] },
+            "journal_ja": { "type": ["string", "null"] },
+            "journal_en": { "type": ["string", "null"] },
+            "volume": { "type": ["string", "null"] },
+            "issue": { "type": ["string", "null"] },
+            "pages": { "type": ["string", "null"] },
+            "year": { "type": ["integer", "null"] },
+            "holding_org": { "type": ["string", "null"] }
+          }
+        },
+        "ids": {
+          "type": "object",
+          "required": ["doi", "crid", "naid", "kci_id", "uci", "issn", "oai_id", "url_ko", "url_ja", "url_en", "fulltext_url"],
+          "additionalProperties": false,
+          "properties": {
+            "doi": { "type": ["string", "null"] },
+            "crid": { "type": ["string", "null"] },
+            "naid": { "type": ["string", "null"] },
+            "kci_id": { "type": ["string", "null"] },
+            "uci": { "type": ["string", "null"] },
+            "issn": { "type": ["string", "null"] },
+            "oai_id": { "type": ["string", "null"] },
+            "url_ko": { "type": ["string", "null"] },
+            "url_ja": { "type": ["string", "null"] },
+            "url_en": { "type": ["string", "null"] },
+            "fulltext_url": { "type": ["string", "null"] }
+          }
+        },
+        "matched_in": {
+          "type": "string",
+          "description": "Which field the match was made in, or 'unknown' where the source does not say."
+        },
+        "record_type": {
+          "type": "string",
+          "description": "e.g. 'article', 'book', 'dissertation', 'project', 'researcher'."
+        },
+        "extra": {
+          "type": "object",
+          "description": "Source-specific fields that have no place in the shared shape.",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}
