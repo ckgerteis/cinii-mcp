@@ -14,6 +14,13 @@ themselves 2.1.0 and neither carrying the other's work:
 2.2.0 is the union. Everything is additive: a consumer reading `.ja` or calling
 dumps() is unaffected, so the Japanese servers can adopt it without migration.
 
+The union was assembled from the Korean copy, which never carried the
+`searched_for` headline that v2.1.0 introduced, and the field was lost in the
+merge. It is restored here. It is the field the whole second limb of the
+disclosure standard rests on — the term the assistant chose, hoisted where a
+relaying client cannot drop it — so its absence would have made 2.2.0 a
+silent regression on the one thing this envelope exists to make visible.
+
 Design rule, unchanged: every interpretation key is a typed field, not prose.
 The output is deterministic — typed facts and typed diagnostics only, never a
 server-composed summary or relevance score. A tool may show its choices; it may
@@ -265,14 +272,30 @@ def build_envelope(
         total_i = int(total)
     except (TypeError, ValueError):
         total_i = 0
+    script = detect_script(normalized)
     env: dict[str, Any] = {
         "server": server,
         "schema_version": SCHEMA_VERSION,
         "operation": operation,
+    }
+    # The headline, carried forward from 2.1.0. It is gated to operations that
+    # chose a term: a fetch was handed an identifier, so a `searched_for` on
+    # get_record would report a choice nobody made. The test is a substring
+    # rather than a prefix because the family does not name operations alike —
+    # cinii, jstage and ndl use `search_*`, korea-scholarship-mcp uses
+    # `kci_search`. A harvest is not a search: `kci_harvest` and `oak_harvest`
+    # filter a window and choose no term, and are correctly excluded.
+    if "search" in operation:
+        env["searched_for"] = {
+            "term": normalized,
+            "script": script,
+            "matching": matching_mode,
+        }
+    env.update({
         "query": {
             "input_terms": input_terms,
             "normalized": normalized,
-            "script": detect_script(normalized),
+            "script": script,
             "params": params,
         },
         "matching_mode": matching_mode,
@@ -288,7 +311,7 @@ def build_envelope(
         "coverage_note": coverage_note,
         "receipt": make_receipt(normalized, params, items),
         "attribution": attribution,
-    }
+    })
     if suggestions:
         env["suggestions"] = suggestions
     return env
