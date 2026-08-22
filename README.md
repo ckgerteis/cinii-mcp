@@ -20,7 +20,7 @@ Results come from the CiNii Research OpenSearch v2 API as JSON-LD and are return
 
 ## Response format
 
-Every tool returns one JSON response envelope, built by `mediation.py` and defined in [`response-schema.json`](response-schema.json). Schema version 2.2.0. The same module and schema are vendored byte-identically across the server family, so an envelope from one server can be read by a consumer written for another.
+Every tool returns one JSON response envelope, built by `mediation.py` and defined in [`response-schema.json`](response-schema.json). Schema version 2.3.0. The same module and schema are vendored byte-identically across the server family, so an envelope from one server can be read by a consumer written for another.
 
 The envelope reports how the search was made, not only what it found:
 
@@ -43,10 +43,14 @@ Typed and closed. A diagnostic is never prose the client has to parse.
 | `SCRIPT_LATIN_QUERY` | warning | The query was Latin-script, so it matched romanised and English metadata only. The Japanese-script form reaches a different, larger corpus. |
 | `API_ERROR` | error | The API answered, and answered with an error. |
 | `TRANSPORT_ERROR` | error | The request did not complete. Kept distinct from `API_ERROR` because a failed search has an unknown result and must never be written up as an absence. |
+| `RECEIPT_NOT_DEPOSITED` | info | The response was not written to the query ledger, because `MCP_RECEIPT_LOG` is unset. The search is unaffected; no receipt survives it. |
+| `RECEIPT_WRITE_FAILED` | warning | `MCP_RECEIPT_LOG` is set, the write was attempted, and it did not land. Distinct from the line above because one is a choice and the other is a fault. |
 
 ### Query receipts
 
 Every envelope can be deposited to an append-only, hash-chained JSONL log by `ledger.py`. It is **off unless `MCP_RECEIPT_LOG` is set**, and a logging failure is swallowed rather than raised — a search matters more than the record of it. Secrets are redacted before a line is composed.
+
+Since schema 2.3.0 the envelope says so. When a response is not deposited, `emit()` appends `RECEIPT_NOT_DEPOSITED` if the variable is unset, or `RECEIPT_WRITE_FAILED` if it is set and the write did not land. The gap is then visible in the artefact that becomes the record, rather than only in a configuration file. `mediation.deposit_enabled()` reports the same fact on demand.
 
 ```
 MCP_RECEIPT_LOG=C:\path\to\receipts.jsonl
