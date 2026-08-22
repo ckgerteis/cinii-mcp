@@ -4,6 +4,14 @@ A FastMCP stdio server exposing the [CiNii Research API](https://support.nii.ac.
 
 CiNii Research aggregates metadata from KAKEN, CiNii Articles, CiNii Books, IRDB, Crossref, DataCite, PubMed, and NDL Search. There is no established open MCP tooling for it, so this server fills that gap for researchers querying Japanese-language scholarship.
 
+## What this is for
+
+CiNii Research indexes Japanese scholarship across five kinds of record, and this puts all of them inside a Claude conversation: journal articles, books and monographs, doctoral dissertations, KAKEN grant projects, and researcher profiles, plus single-record lookup by CRID. Ask a question in English and get Japanese-language scholarship back, with the Japanese term actually sent shown beside the results.
+
+KAKEN repays separate attention — it records what was *funded*, so it surfaces projects underway, collaborations forming, and research that reached a grant report before it reached print.
+
+Every result carries the term sent, its script, how CiNii matched it, and a receipt fixing the query, so a search standing behind a footnote can be named, cited, and run again by someone else.
+
 ## Tools
 
 | Tool | Purpose |
