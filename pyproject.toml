@@ -1,6 +1,6 @@
 [project]
 name = "cinii-mcp"
-version = "2.2.0"
+version = "2.3.0"
 description = "MCP stdio server for the CiNii Research API (Japanese scholarship)."
 readme = "README.md"
 requires-python = ">=3.10"
