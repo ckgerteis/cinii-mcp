@@ -1,5 +1,5 @@
 """
-mediation.py — unified response envelope for the whole server family (v2.2.0).
+mediation.py — unified response envelope for the whole server family (v2.3.0).
 
 One file, vendored byte-identical into cinii-mcp, jstage-mcp, ndl-mcp and
 korea-scholarship-mcp. Until 19 Aug 2026 there were **two** files both calling
@@ -36,7 +36,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-SCHEMA_VERSION = "2.2.0"
+SCHEMA_VERSION = "2.3.0"
 
 # Unicode blocks used for script detection.
 _HIRA = (0x3040, 0x309F)
@@ -351,12 +351,68 @@ def ledger_available() -> bool:
     return _ledger is not None
 
 
+def deposit_enabled() -> bool:
+    """Whether a deposit would actually be written, not merely whether it could be.
+
+    ledger_available() answers the first gate: did ledger.py import at all. This
+    answers the second and independent one: is MCP_RECEIPT_LOG set. Both must
+    hold, and they fail identically from outside — emit() returns the same string
+    either way — which is why each is reported rather than assumed.
+    """
+    if _ledger is None:
+        return False
+    try:
+        return bool(_ledger.enabled())
+    except Exception:  # pragma: no cover
+        return False
+
+
+_UNDEPOSITED = (
+    "This response was not written to the query ledger, so no receipt survives "
+    "the conversation it was issued in."
+)
+
+
+def _mark_undeposited(envelope: dict, configured: bool) -> None:
+    """Append a typed diagnostic recording that the deposit did not happen."""
+    if configured:
+        d = diag(
+            "warning", "RECEIPT_WRITE_FAILED",
+            _UNDEPOSITED + " MCP_RECEIPT_LOG is set, so the write was attempted "
+            "and did not land.",
+            "Check the path is writable and has space. Set MCP_RECEIPT_STRICT=1 "
+            "to make the next failure raise rather than pass.",
+        )
+    else:
+        d = diag(
+            "info", "RECEIPT_NOT_DEPOSITED",
+            _UNDEPOSITED + " MCP_RECEIPT_LOG is unset, so no deposit was attempted.",
+            "Set MCP_RECEIPT_LOG before any session whose queries are meant to be "
+            "citable evidence; an append-only log cannot be written backwards.",
+        )
+    ds = envelope.get("diagnostics")
+    if isinstance(ds, list):
+        ds.append(d)
+    else:
+        envelope["diagnostics"] = [d]
+
+
 def emit(envelope: dict) -> str:
     """Record the envelope to the query ledger, then serialize it.
 
     This is dumps() plus persistence. It exists so that the receipt the envelope
     already carries survives the conversation it was issued in.
+
+    Since 2.3.0 the envelope also reports whether that persistence happened. An
+    unset MCP_RECEIPT_LOG remains a legitimate configuration and still writes
+    nothing; what is not legitimate is a response that looks deposited and is
+    not. Between 19 and 22 August 2026 ndl-mcp called this function at every
+    exit and deposited nothing, because the variable was absent from its
+    environment — three days of undeposited queries behind well-formed
+    envelopes, visible nowhere except a config file. The diagnostic puts that
+    fact in the artefact that becomes the record, at the moment of the search.
     """
-    if _ledger is not None:
-        _ledger.record_envelope(envelope)
+    written = _ledger.record_envelope(envelope) if _ledger is not None else None
+    if written is None:
+        _mark_undeposited(envelope, deposit_enabled())
     return dumps(envelope)
