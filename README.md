@@ -69,7 +69,7 @@ MCP_RECEIPT_STRICT=1        # optional: make logging failure raise
 Verify a deposited log's hash chain:
 
 ```bash
-python ledger.py verify receipts.jsonl
+cinii-mcp-ledger verify receipts.jsonl
 ```
 
 ## Prerequisites
@@ -89,22 +89,37 @@ The same application ID also works for the KAKEN API, which `cinii_search_kaken`
 
 ## Install
 
-The server is single-file with three runtime dependencies. Use a dedicated virtual environment.
-
-```powershell
-# from the directory containing server.py
-py -3.11 -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-```
-
-On macOS / Linux:
+The package installs a `cinii-mcp` console script. It is namespaced, so it can
+share one environment with the rest of this server family.
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+.venv/bin/pip install .
 ```
+
+On Windows:
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\pip.exe install .
+```
+
+Or straight from the repository, without cloning:
+
+```bash
+uvx --from "git+https://github.com/ckgerteis/cinii-mcp" cinii-mcp
+```
+
+Verify the install:
+
+```bash
+.venv/bin/python -c "import cinii_mcp; print(cinii_mcp.__version__)"
+```
+
+That fails loudly if the package or one of its vendored modules is missing. Do
+not use `cinii-mcp --help` as the check: unknown arguments are ignored, the
+server starts, reads end-of-input and exits 0, so it reports success whatever
+the state of the code.
 
 ## Configuration
 
@@ -120,14 +135,15 @@ CINII_APPID=your_application_id_here
 
 ### Claude Desktop configuration
 
-Add an entry to `%APPDATA%\Claude\claude_desktop_config.json` under `mcpServers`. Adjust the absolute paths and supply your appid in `env`.
+Add an entry to `%APPDATA%\Claude\claude_desktop_config.json` under
+`mcpServers`, pointing at the console script in the environment you installed
+into. On macOS or Linux use the absolute path to `.venv/bin/cinii-mcp`.
 
 ```json
 {
   "mcpServers": {
     "cinii": {
-      "command": "C:\\path\\to\\cinii-mcp\\.venv\\Scripts\\python.exe",
-      "args": ["C:\\path\\to\\cinii-mcp\\server.py"],
+      "command": "C:\\path\\to\\.venv\\Scripts\\cinii-mcp.exe",
       "env": {
         "CINII_APPID": "your_application_id_here"
       }
@@ -136,7 +152,13 @@ Add an entry to `%APPDATA%\Claude\claude_desktop_config.json` under `mcpServers`
 }
 ```
 
-Restart Claude Desktop. The seven tools should appear under "cinii" in the tool list.
+**Changed in 3.0.0.** Earlier versions were registered by path —
+`"command": "…\\python.exe", "args": ["…\\server.py"]`. That entry will not
+start this version, because `server.py` is now a module inside a package rather
+than a script beside its imports. Replace it with the console script above.
+
+Restart Claude Desktop. The seven tools should appear under "cinii" in the
+tool list.
 
 ## Usage rules
 
