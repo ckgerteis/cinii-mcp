@@ -1,6 +1,6 @@
 [project]
 name = "cinii-mcp"
-version = "2.3.0"
+version = "3.0.0"
 description = "MCP stdio server for the CiNii Research API (Japanese scholarship)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,10 @@ dependencies = [
     "pydantic>=2.7.0",
 ]
 
+[project.scripts]
+cinii-mcp = "cinii_mcp:main"
+cinii-mcp-ledger = "cinii_mcp.ledger:_cli"
+
 [project.urls]
 Homepage = "https://www.christophergerteis.net"
 Repository = "https://github.com/ckgerteis/cinii-mcp"
@@ -32,13 +36,23 @@ Repository = "https://github.com/ckgerteis/cinii-mcp"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# The whole project is flat: server.py, mediation.py and ledger.py sit at the
-# root. `packages = ["."]` with an `include` list does NOT constrain the wheel —
-# `include` filters within the selected root rather than replacing it — so it
-# shipped the entire directory into site-packages. `only-include` selects.
+# src layout: the wheel contains the package and nothing else.
 #
-# ledger.py MUST be listed. Omitting it does not fail the build: mediation.py
-# catches the ImportError, sets _ledger = None, and every query goes unrecorded
-# with no error to notice.
+# The flat layout this replaces installed `server.py`, `mediation.py` and
+# `ledger.py` as *top-level* modules. Any two servers of this family in one environment
+# therefore overwrote each other, and `pip check` reported nothing wrong — the
+# later install simply won, silently, and the survivor answered under the wrong
+# server's name. Namespacing under a package is what lets them coexist.
 [tool.hatch.build.targets.wheel]
-only-include = ["server.py", "mediation.py", "ledger.py"]
+packages = ["src/cinii_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/README.md",
+    "/LICENSE",
+    "/CITATION.cff",
+    "/CHANGELOG.md",
+    "/response-schema.json",
+    "/.env.example",
+]
