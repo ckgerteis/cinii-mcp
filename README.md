@@ -144,22 +144,30 @@ not use `cinii-mcp --help` as the check: unknown arguments are ignored, the
 server starts, reads end-of-input and exits 0, so it reports success whatever
 the state of the code.
 
-### The whole family at once
+### Installing more than this one
 
-`install.ps1` — vendored byte-identical into all six repositories — installs any
-or all of `cinii`, `jstage`, `ndl`, `korea_scholarship`, `openalex` and
-`semantic_scholar` into one environment, asks once for a receipts folder, and
-registers them all against it.
+Six independent packages. None imports another, none depends on another, and
+each installs and answers on its own — `pip install .` in this directory is a
+complete install of this server and nothing else.
+
+They do share three things: a response envelope, a query ledger, and — if you
+run more than one — a receipts folder. `install.ps1` is vendored byte-identical
+into all six and handles that. **It installs this server by default**, because
+cloning one repository is not a request for five more.
 
 ```powershell
-.\install.ps1                                   # all six
-.\install.ps1 -Servers cinii -ReceiptsDir "D:\research\receipts"
+.\install.ps1                        # this server
+.\install.ps1 -All                   # all six
+.\install.ps1 -Servers cinii,cinii         # a chosen subset
 ```
 
-It reads a sibling checkout where one exists and fetches the rest from GitHub,
-carries across any credentials already registered rather than asking again, and
-stops rather than guessing if the servers already registered disagree about where
-the receipts go.
+Whatever subset you name is registered against one receipts folder, asked for
+once. The script prefers a sibling checkout to the network, carries across
+credentials already registered rather than asking again, leaves servers it was
+not asked about alone, and stops rather than guessing where the servers already
+registered disagree about the folder or the session slug. It also asserts that
+`ledger.py` and `mediation.py` are byte-identical across everything it
+installed, so two envelope versions cannot end up in one environment unnoticed.
 
 ## Configuration
 

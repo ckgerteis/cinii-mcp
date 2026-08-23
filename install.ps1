@@ -3,11 +3,15 @@
     Install the bibliographic MCP server family and point them at one receipts folder.
 
 .DESCRIPTION
-    Six servers, one deposit. This script installs whichever of them you name into
-    a single Python environment, registers each with Claude Desktop, and gives them
-    all one receipts folder to write to.
+    Six independent packages that happen to share a response envelope, a query
+    ledger and a receipts folder. Each installs on its own and answers on its own;
+    none imports another. Run this script from a repository and it installs THAT
+    server. Pass -All, or name them with -Servers, to install more.
 
         cinii   jstage   ndl   korea_scholarship   openalex   semantic_scholar
+
+    Whatever subset you install is registered with Claude Desktop and pointed at
+    one receipts folder.
 
     The folder, not a file. Appending to the hash-chained log is
     read-the-last-hash-then-write, and the lock around it holds within one process
@@ -22,7 +26,14 @@
     ledger.py are. Run it from any one of them.
 
 .PARAMETER Servers
-    Which to install. Default: all six.
+    Which to install. Defaults to the one whose repository this copy of the
+    script sits in, and nothing else. Six separate packages: nobody should get
+    five servers they did not ask for because they cloned one.
+
+.PARAMETER All
+    Install all six. The family shares a response envelope and a receipts
+    folder, so running them together is the case the script is shaped around —
+    but it is opted into, not assumed.
 
 .PARAMETER ReceiptsDir
     The receipts folder. If not passed, the script asks; the answer offered is
@@ -46,7 +57,8 @@
     Python launcher tag used only if no shared venv is found. Defaults to '3.13'.
 
 .EXAMPLE
-    .\install.ps1
+    .\install.ps1                                    # just this repository's server
+    .\install.ps1 -All                               # the whole family
     .\install.ps1 -Servers ndl,korea_scholarship -NotificationFiled 2026-08-19
     .\install.ps1 -ReceiptsDir "D:\research\receipts" -Session rhs-transactions-2026
 #>
@@ -54,7 +66,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet("cinii","jstage","ndl","korea_scholarship","openalex","semantic_scholar")]
-    [string[]]$Servers = @("cinii","jstage","ndl","korea_scholarship","openalex","semantic_scholar"),
+    [string[]]$Servers,
+    [switch]$All,
     [string]$ReceiptsDir,
     [string]$Session,
     [switch]$NoReceipts,
@@ -80,6 +93,28 @@ $CATALOGUE = [ordered]@{
     korea_scholarship = @{ dist = "korea-scholarship-mcp"; pkg = "korea_scholarship_mcp"; cmd = "korea-scholarship-mcp"; creds = @("KCI_API_KEY") }
     openalex          = @{ dist = "openalex-mcp";          pkg = "openalex_mcp";          cmd = "openalex-mcp";          creds = @("OPENALEX_API_KEY","OPENALEX_EMAIL") }
     semantic_scholar  = @{ dist = "semantic-scholar-mcp";  pkg = "semantic_scholar_mcp";  cmd = "semantic-scholar-mcp";  creds = @("SEMANTIC_SCHOLAR_API_KEY") }
+}
+
+# Which server does this copy of the script belong to? The map is by repository
+# name because the script is vendored byte-identical into all six, so the only
+# thing distinguishing one copy from another is where it sits.
+$SELF = @{
+    "cinii-mcp" = "cinii"; "jstage-mcp" = "jstage"; "ndl-mcp" = "ndl"
+    "korea-scholarship-mcp" = "korea_scholarship"; "openalex-mcp" = "openalex"
+    "semantic-scholar-mcp" = "semantic_scholar"
+}
+
+if ($All) {
+    $Servers = @($CATALOGUE.Keys)
+} elseif (-not $Servers) {
+    $here = Split-Path $ScriptRoot -Leaf
+    if ($SELF.ContainsKey($here)) {
+        $Servers = @($SELF[$here])
+    } else {
+        throw ("Cannot tell which server to install: this script is in a folder named '" + $here +
+               "', which is not one of " + (($SELF.Keys | Sort-Object) -join ", ") +
+               ".`nName them with -Servers, or pass -All for the whole family.")
+    }
 }
 
 function Write-Step($msg) {
@@ -291,8 +326,9 @@ Write-Step "Verifying the installed packages"
 $probe = Join-Path $env:TEMP "mcp_family_probe_$PID.py"
 $pkgList = ($Servers | ForEach-Object { $CATALOGUE[$_].pkg }) -join ","
 @"
-import importlib
-for name in "$pkgList".split(","):
+import hashlib, importlib, pathlib
+_names = "$pkgList".split(",")
+for name in _names:
     pkg = importlib.import_module(name)
     srv = importlib.import_module(name + ".server")
     tools = sorted(srv.mcp._tool_manager._tools)
@@ -310,6 +346,34 @@ for name in "$pkgList".split(","):
         assert set(srv.ALL_DPIDS) <= set(srv.PROVIDERS), "undeclared provider"
         print("OK - ndl undertakings: interval %ss, cap %s records, providers declared"
               % (srv.MIN_REQUEST_INTERVAL, srv.MAX_RECORDS))
+
+# mediation.py and ledger.py are vendored byte-identical across this family. The
+# packages are independent and nothing enforces that, so it is asserted rather
+# than assumed — across every family package PRESENT IN THE ENVIRONMENT, not
+# merely the ones this run installed. The incremental case is the one that
+# matters: install one server today, add a second from a stale checkout next
+# month, and only a check that looks at both would notice.
+_FAMILY = ("cinii_mcp", "jstage_mcp", "ndl_mcp", "korea_scholarship_mcp",
+           "openalex_mcp", "semantic_scholar_mcp")
+_present = []
+for _n in _FAMILY:
+    try:
+        importlib.import_module(_n); _present.append(_n)
+    except ModuleNotFoundError:
+        pass
+_seen = {}
+for name in _present:
+    d = pathlib.Path(importlib.import_module(name).__file__).parent
+    for fn in ("ledger.py", "mediation.py"):
+        f = d / fn
+        if f.exists():
+            _seen.setdefault(fn, {}).setdefault(hashlib.sha256(f.read_bytes()).hexdigest(), []).append(name)
+for fn, byhash in sorted(_seen.items()):
+    if len(byhash) > 1:
+        raise SystemExit("FAIL - %s differs between installed packages: %s"
+                         % (fn, {h[:12]: v for h, v in byhash.items()}))
+    h, who = next(iter(byhash.items()))
+    print("OK - %-14s identical across %d installed package(s): %s" % (fn, len(who), ", ".join(who)))
 "@ | Out-File -FilePath $probe -Encoding utf8
 try {
     & $Python $probe
