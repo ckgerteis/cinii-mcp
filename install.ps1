@@ -132,14 +132,19 @@ $legacyLogs   = @($legacyLogs | Sort-Object -Unique)
 
 Write-Step "Receipts folder"
 
-$receiptsDir = $null
-$session     = $null
+# NOT $receiptsDir / $session. PowerShell variable names are case-insensitive,
+# so a local by that name IS the parameter, and initialising it to $null here
+# silently discarded -ReceiptsDir and -Session before anything read them. The
+# install then reported "not interactive; using <default>" and registered every
+# server against a folder the caller had not chosen. Caught by running it.
+$chosenDir     = $null
+$chosenSession = $null
 
 if ($NoReceipts) {
     Write-Host "    -NoReceipts: searches will run and leave no record." -ForegroundColor Yellow
 } else {
     if ($ReceiptsDir) {
-        $receiptsDir = $ReceiptsDir
+        $chosenDir = $ReceiptsDir
     } else {
         $suggested = if ($distinctDirs.Count -eq 1) { $distinctDirs[0] } else { $DefaultDir }
         if ($distinctDirs.Count -gt 1) {
@@ -151,34 +156,34 @@ if ($NoReceipts) {
             Write-Host "  Put it somewhere you back up and would be willing to deposit."
             Write-Host ""
             $answer = Read-Host "  Receipts folder [$suggested]"
-            $receiptsDir = if ([string]::IsNullOrWhiteSpace($answer)) { $suggested } else { $answer.Trim('"').Trim() }
+            $chosenDir = if ([string]::IsNullOrWhiteSpace($answer)) { $suggested } else { $answer.Trim('"').Trim() }
         } else {
-            $receiptsDir = $suggested
-            Write-Host "    Not interactive; using $receiptsDir"
+            $chosenDir = $suggested
+            Write-Host "    Not interactive; using $chosenDir"
         }
     }
-    $receiptsDir = [System.IO.Path]::GetFullPath($receiptsDir)
+    $chosenDir = [System.IO.Path]::GetFullPath($chosenDir)
 
     if ($Session) {
-        $session = $Session
+        $chosenSession = $Session
     } elseif ($distinctSess.Count -eq 1) {
-        $session = $distinctSess[0]
-        Write-Host "    Session slug: $session (from the registered servers)"
+        $chosenSession = $distinctSess[0]
+        Write-Host "    Session slug: $chosenSession (from the registered servers)"
     } elseif ($distinctSess.Count -gt 1) {
         throw "The registered servers use $($distinctSess.Count) different session slugs:`n  $($distinctSess -join "`n  ")`nThe slug groups a project's queries. Pass -Session to say which."
     } elseif ($Interactive) {
         $answer = Read-Host "  Session slug (a project or article name)"
-        $session = if ([string]::IsNullOrWhiteSpace($answer)) { $null } else { $answer.Trim() }
+        $chosenSession = if ([string]::IsNullOrWhiteSpace($answer)) { $null } else { $answer.Trim() }
     }
-    if (-not $session) {
+    if (-not $chosenSession) {
         Write-Host "    No session slug. Lines will carry an empty label." -ForegroundColor Yellow
     }
 
-    if (-not (Test-Path $receiptsDir)) {
-        New-Item -ItemType Directory -Path $receiptsDir -Force | Out-Null
-        Write-Host "    Created $receiptsDir"
+    if (-not (Test-Path $chosenDir)) {
+        New-Item -ItemType Directory -Path $chosenDir -Force | Out-Null
+        Write-Host "    Created $chosenDir"
     } else {
-        Write-Host "    Using $receiptsDir"
+        Write-Host "    Using $chosenDir"
     }
 }
 
@@ -315,10 +320,10 @@ try {
 
 # -- 6. The receipts folder's own README --------------------------------------
 
-if ($receiptsDir) {
+if ($chosenDir) {
     Write-Step "Writing the receipts folder README"
     $anyCmd = $CATALOGUE[$Servers[0]].cmd
-    $readme = Join-Path $receiptsDir "README.md"
+    $readme = Join-Path $chosenDir "README.md"
     @"
 # Query receipts
 
@@ -342,10 +347,10 @@ the layout exists so it cannot arise.
 
 ## Verifying
 
-    $anyCmd-ledger verify-dir  "$receiptsDir"
-    $anyCmd-ledger manifest    "$receiptsDir"
-    $anyCmd-ledger summary     "$receiptsDir\<server>.jsonl"
-    $anyCmd-ledger csv         "$receiptsDir\<server>.jsonl" out.csv
+    $anyCmd-ledger verify-dir  "$chosenDir"
+    $anyCmd-ledger manifest    "$chosenDir"
+    $anyCmd-ledger summary     "$chosenDir\<server>.jsonl"
+    $anyCmd-ledger csv         "$chosenDir\<server>.jsonl" out.csv
 
 ``verify`` exits non-zero if a chain does not verify, and distinguishes a fork
 (concurrent writers), a missing line, a reordering, and an edited line.
@@ -390,8 +395,8 @@ foreach ($name in $Servers) {
         Write-Host ("    {0}: no {1} registered; the server will install and its keyed tools will fail until one is set." -f $name, ($missing -join ", ")) -ForegroundColor Yellow
     }
 
-    if ($receiptsDir) { $envBlock["MCP_RECEIPT_DIR"] = $receiptsDir }
-    if ($session)     { $envBlock["MCP_RECEIPT_SESSION"] = $session }
+    if ($chosenDir) { $envBlock["MCP_RECEIPT_DIR"] = $chosenDir }
+    if ($chosenSession)     { $envBlock["MCP_RECEIPT_SESSION"] = $chosenSession }
 
     $entry = [ordered]@{ command = $installed[$name].exe }
     if ($envBlock.Count) { $entry["env"] = $envBlock }
@@ -417,11 +422,11 @@ foreach ($name in $Servers) {
     Write-Host ("  {0,-18} {1,-8} {2}" -f $name, $installed[$name].version, $installed[$name].exe)
 }
 Write-Host ""
-if ($receiptsDir) {
+if ($chosenDir) {
     Write-Host "Receipts:" -ForegroundColor Green
-    Write-Host "  folder : $receiptsDir"
-    Write-Host "  session: $(if ($session) { $session } else { '(none - lines will carry an empty label)' })"
-    Write-Host "  verify : $($CATALOGUE[$Servers[0]].cmd)-ledger verify-dir `"$receiptsDir`""
+    Write-Host "  folder : $chosenDir"
+    Write-Host "  session: $(if ($chosenSession) { $chosenSession } else { '(none - lines will carry an empty label)' })"
+    Write-Host "  verify : $($CATALOGUE[$Servers[0]].cmd)-ledger verify-dir `"$chosenDir`""
 } else {
     Write-Host "Receipts: NOT DEPOSITED - no MCP_RECEIPT_DIR set." -ForegroundColor Yellow
     Write-Host "          Searches will run and leave no record." -ForegroundColor Yellow
