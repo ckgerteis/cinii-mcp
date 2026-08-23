@@ -241,6 +241,38 @@ if (Test-Path $SharedPython) {
 }
 $ScriptsDir = Split-Path $Python -Parent
 
+# -- Pre-flight: is anything we would replace held open? ----------------------
+#
+# pip uninstalls before it installs. If a console script is locked by a running
+# Claude Desktop, pip removes the package, fails to write the script, and leaves
+# the server UNINSTALLED — a working server gone, and the configuration still
+# pointing at it. That is worse than not running at all, and it is not
+# hypothetical: it happened to korea-scholarship-mcp on 23 August 2026, halfway
+# through a family install.
+#
+# So the check runs before pip does, and refuses rather than repairs.
+
+Write-Step "Checking that nothing we must replace is in use"
+
+$locked = @()
+foreach ($name in $Servers) {
+    $exe = Join-Path $ScriptsDir ($CATALOGUE[$name].cmd + ".exe")
+    if (-not (Test-Path $exe)) { continue }
+    try {
+        $fs = [System.IO.File]::Open($exe, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $fs.Close(); $fs.Dispose()
+    } catch {
+        $locked += $CATALOGUE[$name].cmd
+    }
+}
+if ($locked.Count) {
+    throw ("In use and not replaceable:`n  " + ($locked -join "`n  ") +
+           "`n`nClaude Desktop is running these servers and holds their launchers open." +
+           "`nQuit Claude Desktop entirely, then run this again." +
+           "`n`nNothing has been installed, uninstalled or reconfigured. Your current setup is untouched.")
+}
+Write-Host "    nothing in use"
+
 # -- 3. The NDL notification --------------------------------------------------
 
 if ($Servers -contains "ndl") {
