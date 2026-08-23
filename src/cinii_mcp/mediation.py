@@ -355,9 +355,10 @@ def deposit_enabled() -> bool:
     """Whether a deposit would actually be written, not merely whether it could be.
 
     ledger_available() answers the first gate: did ledger.py import at all. This
-    answers the second and independent one: is MCP_RECEIPT_LOG set. Both must
-    hold, and they fail identically from outside — emit() returns the same string
-    either way — which is why each is reported rather than assumed.
+    answers the second and independent one: is a receipts destination configured
+    — MCP_RECEIPT_DIR, or the legacy MCP_RECEIPT_LOG. Both gates must hold, and
+    they fail identically from outside — emit() returns the same string either
+    way — which is why each is reported rather than assumed.
     """
     if _ledger is None:
         return False
@@ -378,17 +379,19 @@ def _mark_undeposited(envelope: dict, configured: bool) -> None:
     if configured:
         d = diag(
             "warning", "RECEIPT_WRITE_FAILED",
-            _UNDEPOSITED + " MCP_RECEIPT_LOG is set, so the write was attempted "
-            "and did not land.",
-            "Check the path is writable and has space. Set MCP_RECEIPT_STRICT=1 "
-            "to make the next failure raise rather than pass.",
+            _UNDEPOSITED + " A receipts destination is set, so the write was "
+            "attempted and did not land.",
+            "Check MCP_RECEIPT_DIR (or MCP_RECEIPT_LOG) is writable and has space. "
+            "Set MCP_RECEIPT_STRICT=1 to make the next failure raise rather than pass.",
         )
     else:
         d = diag(
             "info", "RECEIPT_NOT_DEPOSITED",
-            _UNDEPOSITED + " MCP_RECEIPT_LOG is unset, so no deposit was attempted.",
-            "Set MCP_RECEIPT_LOG before any session whose queries are meant to be "
-            "citable evidence; an append-only log cannot be written backwards.",
+            _UNDEPOSITED + " No receipts destination is configured, so no deposit "
+            "was attempted.",
+            "Set MCP_RECEIPT_DIR to a receipts folder before any session whose "
+            "queries are meant to be citable evidence; an append-only log cannot "
+            "be written backwards.",
         )
     ds = envelope.get("diagnostics")
     if isinstance(ds, list):
@@ -403,8 +406,8 @@ def emit(envelope: dict) -> str:
     This is dumps() plus persistence. It exists so that the receipt the envelope
     already carries survives the conversation it was issued in.
 
-    Since 2.3.0 the envelope also reports whether that persistence happened. An
-    unset MCP_RECEIPT_LOG remains a legitimate configuration and still writes
+    Since 2.3.0 the envelope also reports whether that persistence happened. No
+    receipts destination remains a legitimate configuration and still writes
     nothing; what is not legitimate is a response that looks deposited and is
     not. Between 19 and 22 August 2026 ndl-mcp called this function at every
     exit and deposited nothing, because the variable was absent from its
