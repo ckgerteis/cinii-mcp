@@ -20,16 +20,33 @@ Two entry points, because the four servers are not alike:
 
 Configuration is entirely by environment:
 
-    MCP_RECEIPT_LOG      path to the JSONL file. UNSET MEANS OFF — nothing is
-                         written and nothing fails.
+    MCP_RECEIPT_DIR      path to a receipts FOLDER. Each server writes its own
+                         file, <dir>/<server>.jsonl. Preferred.
+    MCP_RECEIPT_LOG      path to a single JSONL file. Honoured for compatibility
+                         and only when MCP_RECEIPT_DIR is unset. See the warning
+                         below before pointing several servers at one file.
     MCP_RECEIPT_SESSION  free-text label written into every line (a project or
-                         article slug).
+                         article slug). The slug is what groups a project's
+                         queries, so it should be the same across every server
+                         working on one piece of research.
     MCP_RECEIPT_STRICT   set to 1 to make a logging failure raise instead of
                          passing silently. Default is to swallow: a search
                          matters more than the record of it.
 
+BOTH UNSET MEANS OFF — nothing is written and nothing fails.
+
 Every line carries the SHA-256 of the line before it, so a deposited log is
-tamper-evident. Verify with `python ledger.py verify <path>`.
+tamper-evident. Verify one file with `<dist>-ledger verify <path>`, or a whole
+folder with `<dist>-ledger verify-dir <dir>`.
+
+One writer per file. Appending is read-the-last-hash-then-write, and the lock
+around it is a threading lock, which holds within one process and not between
+several. Six servers are six processes: point them at one file and two of them
+answering at the same moment will both read the same predecessor and both claim
+it. Measured, not theorised — six processes writing 150 lines to one file
+produced 14 forks. Hence MCP_RECEIPT_DIR and a file per server. verify_chain()
+reports a fork as a fork rather than as tampering, because the two mean entirely
+different things about a deposit.
 
 Secrets are never written. Any parameter whose name matches _SECRET_KEYS is
 replaced with the string "[redacted]" before the line is composed, because these
@@ -47,7 +64,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional
 
-LEDGER_VERSION = "1.0.0"
+LEDGER_VERSION = "1.1.0"
 
 _LOCK = threading.Lock()
 _GENESIS = "0" * 64
@@ -61,12 +78,34 @@ _SECRET_KEYS = {
 # ---------------------------------------------------------------- helpers
 
 def enabled() -> bool:
-    return bool(os.environ.get("MCP_RECEIPT_LOG"))
+    return bool(os.environ.get("MCP_RECEIPT_DIR") or os.environ.get("MCP_RECEIPT_LOG"))
 
 
-def _path() -> Optional[str]:
+def _slug(server: str) -> str:
+    """A filename for a server name. Conservative: anything outside
+    [A-Za-z0-9._-] becomes a hyphen, so a name from a caller cannot escape the
+    receipts folder or collide with a path separator."""
+    out = "".join(c if (c.isalnum() or c in "._-") else "-" for c in (server or "unknown"))
+    out = out.strip("-.") or "unknown"
+    return out.lower()
+
+
+def receipts_dir() -> Optional[str]:
+    d = os.environ.get("MCP_RECEIPT_DIR")
+    return d or None
+
+
+def log_path_for(server: str) -> Optional[str]:
+    """Where this server's receipts go, or None if depositing is off."""
+    d = receipts_dir()
+    if d:
+        return os.path.join(d, _slug(server) + ".jsonl")
     p = os.environ.get("MCP_RECEIPT_LOG")
     return p or None
+
+
+def _path(line: Optional[Mapping[str, Any]] = None) -> Optional[str]:
+    return log_path_for(str((line or {}).get("server") or "unknown"))
 
 
 def redact(params: Optional[Mapping[str, Any]]) -> dict:
@@ -109,7 +148,7 @@ def _last_hash(path: str) -> str:
 
 
 def _write(line: dict) -> Optional[dict]:
-    path = _path()
+    path = _path(line)
     if not path:
         return None
     try:
@@ -296,17 +335,146 @@ def read_log(path: str) -> Iterable[dict]:
 
 
 def verify_chain(path: str) -> dict:
-    """Recompute the chain. {'ok', 'lines', 'break_at', 'reason'}."""
+    """Recompute the chain.
+
+    {'ok', 'lines', 'break_at', 'kind', 'reason', 'terminal_hash'}
+
+    `kind` separates findings the earlier version reported identically as
+    "prev_hash mismatch", and which mean entirely different things:
+
+        'fork'       two or more lines claim the same predecessor. That is the
+                     signature of concurrent writers to one file — one process
+                     reads the last hash, a second appends before the first
+                     does, and both then claim it. The file was written by more
+                     than one process at once. Nobody edited anything.
+        'missing'    a line's predecessor is nowhere in the file. A line was
+                     removed, or the file was truncated from the middle.
+        'reordered'  the lines are all present and all self-consistent, and they
+                     are not in chain order.
+        'tamper'     a line does not hash to its own content. It was edited.
+
+    Only the last is a claim about honesty. A fork is a configuration fault: the
+    file is several chains rather than one, and reading it as such recovers
+    every line. Reporting the two the same way would invite a reader to treat a
+    misconfiguration as evidence of interference, or the reverse.
+    """
+    records = list(read_log(path))
+    n = len(records)
+    if n == 0:
+        return {"ok": True, "lines": 0, "break_at": None, "kind": None,
+                "reason": None, "terminal_hash": _GENESIS}
+
+    # 1. Does every line hash to what it says it does? Independent of order,
+    #    and the only test that speaks to editing.
+    hashes = []
+    for i, rec in enumerate(records, start=1):
+        body = dict(rec)
+        stored = body.pop("hash", None)
+        if _stable_hash(body) != stored:
+            return {"ok": False, "lines": n, "break_at": i, "kind": "tamper",
+                    "reason": "line does not hash to its own content",
+                    "terminal_hash": None}
+        hashes.append(stored)
+
+    # 2. A predecessor claimed twice is a fork.
+    claims: dict = {}
+    for i, rec in enumerate(records, start=1):
+        claims.setdefault(rec.get("prev_hash"), []).append(i)
+    forks = {h: ls for h, ls in claims.items() if len(ls) > 1}
+    if forks:
+        return {"ok": False, "lines": n,
+                "break_at": min(min(ls[1:]) for ls in forks.values()),
+                "kind": "fork",
+                "reason": (f"{len(forks)} predecessor(s) claimed by more than one line; "
+                           f"{sum(len(ls) - 1 for ls in forks.values())} line(s) branch off. "
+                           "Written by concurrent processes, not edited. Give each server "
+                           "its own file with MCP_RECEIPT_DIR."),
+                "forks": len(forks),
+                "branched": sum(len(ls) - 1 for ls in forks.values()),
+                "terminal_hash": None}
+
+    # 3. A predecessor that is nowhere in the file at all is a removal. Tested
+    #    against every hash present, not against the lines seen so far: a line
+    #    that points forward has been moved, not deleted, and step 4 says so.
+    present = set(hashes) | {_GENESIS}
+    for i, rec in enumerate(records, start=1):
+        if rec.get("prev_hash") not in present:
+            return {"ok": False, "lines": n, "break_at": i, "kind": "missing",
+                    "reason": "predecessor is not in this file; a line was removed",
+                    "terminal_hash": None}
+
+    # 4. Everything present and linked: is it in order?
     prev = _GENESIS
-    n = 0
-    for n, rec in enumerate(read_log(path), start=1):
-        stored = rec.pop("hash", None)
+    for i, rec in enumerate(records, start=1):
         if rec.get("prev_hash") != prev:
-            return {"ok": False, "lines": n, "break_at": n, "reason": "prev_hash mismatch"}
-        if _stable_hash(rec) != stored:
-            return {"ok": False, "lines": n, "break_at": n, "reason": "hash mismatch"}
-        prev = stored
-    return {"ok": True, "lines": n, "break_at": None, "reason": None}
+            return {"ok": False, "lines": n, "break_at": i, "kind": "reordered",
+                    "reason": "lines are not in chain order",
+                    "terminal_hash": None}
+        prev = hashes[i - 1]
+
+    return {"ok": True, "lines": n, "break_at": None, "kind": None,
+            "reason": None, "terminal_hash": prev}
+
+
+def verify_dir(directory: str) -> dict:
+    """Verify every .jsonl in a receipts folder and describe the deposit whole.
+
+    This is the object a disclosure cites: one manifest over a folder of
+    single-writer chains, rather than six separate assertions a reader has to
+    reconcile. `ok` is true only if every file verifies.
+    """
+    files = []
+    total = 0
+    by_server: dict = {}
+    by_script: dict = {}
+    sessions: dict = {}
+    first = last = None
+
+    names = sorted(f for f in os.listdir(directory) if f.endswith(".jsonl"))
+    for name in names:
+        path = os.path.join(directory, name)
+        v = verify_chain(path)
+        s = summary(path)
+        files.append({
+            "file": name,
+            "ok": v["ok"],
+            "kind": v.get("kind"),
+            "reason": v.get("reason"),
+            "break_at": v.get("break_at"),
+            "lines": s["lines"],
+            "first": s["first"],
+            "last": s["last"],
+            "servers": sorted(k for k in s["by_server"] if k),
+            "terminal_hash": v.get("terminal_hash"),
+        })
+        total += s["lines"]
+        for k, c in s["by_server"].items():
+            by_server[k] = by_server.get(k, 0) + c
+        for k, c in s["by_script"].items():
+            by_script[k] = by_script.get(k, 0) + c
+        for rec in read_log(path):
+            sess = rec.get("session") or ""
+            sessions[sess] = sessions.get(sess, 0) + 1
+        if s["first"] and (first is None or s["first"] < first):
+            first = s["first"]
+        if s["last"] and (last is None or s["last"] > last):
+            last = s["last"]
+
+    return {
+        "ledger_version": LEDGER_VERSION,
+        "directory": os.path.abspath(directory),
+        "ok": all(f["ok"] for f in files),
+        "files": files,
+        "totals": {
+            "files": len(files),
+            "lines": total,
+            "first": first,
+            "last": last,
+            "by_server": by_server,
+            "by_script": by_script,
+            "by_session": sessions,
+        },
+    }
 
 
 def to_csv(path: str, out: str) -> int:
@@ -353,13 +521,35 @@ def _cli() -> None:
     import sys
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "verify" and len(sys.argv) > 2:
-        print(json.dumps(verify_chain(sys.argv[2]), indent=2))
+        r = verify_chain(sys.argv[2])
+        print(json.dumps(r, indent=2))
+        sys.exit(0 if r["ok"] else 1)
+    elif cmd == "verify-dir" and len(sys.argv) > 2:
+        r = verify_dir(sys.argv[2])
+        print(json.dumps(r, indent=2, ensure_ascii=False))
+        sys.exit(0 if r["ok"] else 1)
+    elif cmd == "manifest" and len(sys.argv) > 2:
+        d = sys.argv[2]
+        out = sys.argv[3] if len(sys.argv) > 3 else os.path.join(d, "manifest.json")
+        r = verify_dir(d)
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump(r, fh, indent=2, ensure_ascii=False, sort_keys=True)
+            fh.write("\n")
+        print(f"{out}: {r['totals']['lines']} lines across "
+              f"{r['totals']['files']} file(s), ok={r['ok']}")
+        sys.exit(0 if r["ok"] else 1)
     elif cmd == "summary" and len(sys.argv) > 2:
         print(json.dumps(summary(sys.argv[2]), indent=2, ensure_ascii=False))
     elif cmd == "csv" and len(sys.argv) > 3:
         print(f"{to_csv(sys.argv[2], sys.argv[3])} rows")
     else:
         print(__doc__)
+        print("Commands:")
+        print("  verify <file>              one chain; exit 1 if it does not verify")
+        print("  verify-dir <dir>           every .jsonl in a receipts folder")
+        print("  manifest <dir> [out]       write the folder manifest (default <dir>/manifest.json)")
+        print("  summary <file>             counts by server and script")
+        print("  csv <file> <out>           flatten one log to CSV")
 
 
 if __name__ == "__main__":

@@ -28,9 +28,9 @@ try:  # mcp SDK 1.x
 except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
     from mcp.server.mcpserver import MCPServer as _MCPServer
 
-import mediation as M
+from . import mediation as M
 
-__version__ = "2.3.0"
+__version__ = "3.0.0"
 
 # ==============================================================================
 # Configuration
@@ -47,7 +47,13 @@ ARTICLE_COVERAGE_NOTE = (
     "foundational studies may sit in cinii_search_books."
 )
 
-mcp = _MCPServer("cinii_mcp")
+# mcp 1.x's FastMCP takes no `version`; 2.x's MCPServer does. Passed where it is
+# accepted, because a server that answers `initialize` with an empty version
+# string cannot be cited by the disclosure that has to name the build it ran.
+try:
+    mcp = _MCPServer("cinii_mcp", version=__version__)
+except TypeError:  # mcp SDK 1.x
+    mcp = _MCPServer("cinii_mcp")
 
 
 class SortOrder(str, Enum):
@@ -516,5 +522,10 @@ async def cinii_get_record(params: RecordLookupInput) -> str:
     return M.emit(env)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Console-script entry point (`cinii-mcp`)."""
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()

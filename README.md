@@ -51,26 +51,49 @@ Typed and closed. A diagnostic is never prose the client has to parse.
 | `SCRIPT_LATIN_QUERY` | warning | The query was Latin-script, so it matched romanised and English metadata only. The Japanese-script form reaches a different, larger corpus. |
 | `API_ERROR` | error | The API answered, and answered with an error. |
 | `TRANSPORT_ERROR` | error | The request did not complete. Kept distinct from `API_ERROR` because a failed search has an unknown result and must never be written up as an absence. |
-| `RECEIPT_NOT_DEPOSITED` | info | The response was not written to the query ledger, because `MCP_RECEIPT_LOG` is unset. The search is unaffected; no receipt survives it. |
-| `RECEIPT_WRITE_FAILED` | warning | `MCP_RECEIPT_LOG` is set, the write was attempted, and it did not land. Distinct from the line above because one is a choice and the other is a fault. |
+| `RECEIPT_NOT_DEPOSITED` | info | The response was not written to the query ledger, because no receipts destination is configured. The search is unaffected; no receipt survives it. |
+| `RECEIPT_WRITE_FAILED` | warning | A receipts destination is set, the write was attempted, and it did not land. Distinct from the line above because one is a choice and the other is a fault. |
 
 ### Query receipts
 
-Every envelope can be deposited to an append-only, hash-chained JSONL log by `ledger.py`. It is **off unless `MCP_RECEIPT_LOG` is set**, and a logging failure is swallowed rather than raised — a search matters more than the record of it. Secrets are redacted before a line is composed.
+Every envelope can be deposited to an append-only, hash-chained JSONL log by `ledger.py`. It is **off unless `MCP_RECEIPT_DIR` (or the legacy `MCP_RECEIPT_LOG`) is set**, and a logging failure is swallowed rather than raised — a search matters more than the record of it. Secrets are redacted before a line is composed.
 
 Since schema 2.3.0 the envelope says so. When a response is not deposited, `emit()` appends `RECEIPT_NOT_DEPOSITED` if the variable is unset, or `RECEIPT_WRITE_FAILED` if it is set and the write did not land. The gap is then visible in the artefact that becomes the record, rather than only in a configuration file. `mediation.deposit_enabled()` reports the same fact on demand.
 
 ```
-MCP_RECEIPT_LOG=C:\path\to\receipts.jsonl
+MCP_RECEIPT_DIR=C:\path\to\receipts        # a folder, not a file
 MCP_RECEIPT_SESSION=project-or-article-slug
-MCP_RECEIPT_STRICT=1        # optional: make logging failure raise
+MCP_RECEIPT_STRICT=1                         # optional: make logging failure raise
+MCP_RECEIPT_LOG=C:\path\to\receipts.jsonl  # legacy single file; ignored when _DIR is set
 ```
 
-Verify a deposited log's hash chain:
+**A folder, and one file per server.** `MCP_RECEIPT_DIR` points at a directory
+and each server writes its own `<server>.jsonl` inside it. That is not tidiness.
+Appending is read-the-last-hash-then-write, and the lock around it is a threading
+lock, which holds within one process and not between several — six servers are
+six processes, and two answering at the same moment will both read the same
+predecessor and both claim it. Measured, not theorised: six processes writing 150
+lines to one file produced fourteen forks. `MCP_RECEIPT_LOG` still works and is
+still correct for a single server; it is the wrong shape for a family.
+
+`install.ps1` sets this up for all six and writes a README into the folder.
+
+Verify one chain, or the whole folder:
 
 ```bash
-python ledger.py verify receipts.jsonl
+cinii-mcp-ledger verify      receipts/cinii.jsonl
+cinii-mcp-ledger verify-dir  receipts
+cinii-mcp-ledger manifest    receipts        # writes receipts/manifest.json
 ```
+
+`verify` exits non-zero on failure and says which kind it found: a **fork**
+(concurrent writers — a configuration fault, and every line is still there), a
+**missing** line, a **reordering**, or **tamper** (a line that does not hash to
+its own content). Only the last is a claim about honesty, and reporting them
+alike would invite a reader to mistake one for the other. The manifest is the
+object to cite: one description of the whole deposit — per-file line counts,
+first and last timestamps, terminal hashes, and combined totals by server,
+script and session.
 
 ## Prerequisites
 
@@ -89,22 +112,62 @@ The same application ID also works for the KAKEN API, which `cinii_search_kaken`
 
 ## Install
 
-The server is single-file with three runtime dependencies. Use a dedicated virtual environment.
-
-```powershell
-# from the directory containing server.py
-py -3.11 -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-```
-
-On macOS / Linux:
+The package installs a `cinii-mcp` console script. It is namespaced, so it can
+share one environment with the rest of this server family.
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+.venv/bin/pip install .
 ```
+
+On Windows:
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\pip.exe install .
+```
+
+Or straight from the repository, without cloning:
+
+```bash
+uvx --from "git+https://github.com/ckgerteis/cinii-mcp" cinii-mcp
+```
+
+Verify the install:
+
+```bash
+.venv/bin/python -c "import cinii_mcp; print(cinii_mcp.__version__)"
+```
+
+That fails loudly if the package or one of its vendored modules is missing. Do
+not use `cinii-mcp --help` as the check: unknown arguments are ignored, the
+server starts, reads end-of-input and exits 0, so it reports success whatever
+the state of the code.
+
+### Installing more than this one
+
+Six independent packages. None imports another, none depends on another, and
+each installs and answers on its own — `pip install .` in this directory is a
+complete install of this server and nothing else.
+
+They do share three things: a response envelope, a query ledger, and — if you
+run more than one — a receipts folder. `install.ps1` is vendored byte-identical
+into all six and handles that. **It installs this server by default**, because
+cloning one repository is not a request for five more.
+
+```powershell
+.\install.ps1                        # this server
+.\install.ps1 -All                   # all six
+.\install.ps1 -Servers cinii,cinii         # a chosen subset
+```
+
+Whatever subset you name is registered against one receipts folder, asked for
+once. The script prefers a sibling checkout to the network, carries across
+credentials already registered rather than asking again, leaves servers it was
+not asked about alone, and stops rather than guessing where the servers already
+registered disagree about the folder or the session slug. It also asserts that
+`ledger.py` and `mediation.py` are byte-identical across everything it
+installed, so two envelope versions cannot end up in one environment unnoticed.
 
 ## Configuration
 
@@ -120,14 +183,15 @@ CINII_APPID=your_application_id_here
 
 ### Claude Desktop configuration
 
-Add an entry to `%APPDATA%\Claude\claude_desktop_config.json` under `mcpServers`. Adjust the absolute paths and supply your appid in `env`.
+Add an entry to `%APPDATA%\Claude\claude_desktop_config.json` under
+`mcpServers`, pointing at the console script in the environment you installed
+into. On macOS or Linux use the absolute path to `.venv/bin/cinii-mcp`.
 
 ```json
 {
   "mcpServers": {
     "cinii": {
-      "command": "C:\\path\\to\\cinii-mcp\\.venv\\Scripts\\python.exe",
-      "args": ["C:\\path\\to\\cinii-mcp\\server.py"],
+      "command": "C:\\path\\to\\.venv\\Scripts\\cinii-mcp.exe",
       "env": {
         "CINII_APPID": "your_application_id_here"
       }
@@ -136,7 +200,13 @@ Add an entry to `%APPDATA%\Claude\claude_desktop_config.json` under `mcpServers`
 }
 ```
 
-Restart Claude Desktop. The seven tools should appear under "cinii" in the tool list.
+**Changed in 3.0.0.** Earlier versions were registered by path —
+`"command": "…\\python.exe", "args": ["…\\server.py"]`. That entry will not
+start this version, because `server.py` is now a module inside a package rather
+than a script beside its imports. Replace it with the console script above.
+
+Restart Claude Desktop. The seven tools should appear under "cinii" in the
+tool list.
 
 ## Usage rules
 
