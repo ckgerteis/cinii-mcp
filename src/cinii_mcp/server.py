@@ -47,7 +47,13 @@ ARTICLE_COVERAGE_NOTE = (
     "foundational studies may sit in cinii_search_books."
 )
 
-mcp = _MCPServer("cinii_mcp")
+# mcp 1.x's FastMCP takes no `version`; 2.x's MCPServer does. Passed where it is
+# accepted, because a server that answers `initialize` with an empty version
+# string cannot be cited by the disclosure that has to name the build it ran.
+try:
+    mcp = _MCPServer("cinii_mcp", version=__version__)
+except TypeError:  # mcp SDK 1.x
+    mcp = _MCPServer("cinii_mcp")
 
 
 class SortOrder(str, Enum):
