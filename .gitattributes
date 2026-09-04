@@ -1,0 +1,5 @@
+# Vendored files are hashed for identity across the family; keep their
+# bytes the same on every platform.
+* text=auto eol=lf
+*.mcpb binary
+*.png binary

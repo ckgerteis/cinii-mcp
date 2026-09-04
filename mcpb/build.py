@@ -88,7 +88,10 @@ def _package_dir() -> Path:
 
 
 def _sha(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """sha256 over LF-normalised bytes: a Windows checkout with autocrlf on
+    rewrites line endings, and identity is a claim about content, not about
+    the platform the file was checked out on."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _vendored_paths() -> list[tuple[str, Path]]:
