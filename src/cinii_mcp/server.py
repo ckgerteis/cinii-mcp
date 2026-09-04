@@ -1,5 +1,5 @@
 """
-CiNii Research MCP Server (v2.0.0)
+CiNii Research MCP Server (v3.0.0)
 ==================================
 An MCP server for searching Japan's national academic information database
 (CiNii Research), operated by the National Institute of Informatics (NII).
@@ -16,8 +16,10 @@ embedded; the appid is taken from the environment at runtime.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
+import sys
 from enum import Enum
 from typing import Optional
 
@@ -31,6 +33,31 @@ except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
 from . import mediation as M
 
 __version__ = "3.0.0"
+
+
+def _silence_http_logging() -> None:
+    """Two reasons, either sufficient on its own.
+
+    httpx logs every request at INFO with the full URL — and the CiNii appid
+    travels in the query string, so a default logging setup writes the
+    credential into whatever stream the client is capturing.
+
+    Second, this is a stdio server: stdout carries JSON-RPC and nothing else.
+    Any handler that defaults to stdout corrupts the protocol frame.
+    """
+    for name in ("httpx", "httpcore", "httpx._client"):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.WARNING)
+        lg.propagate = False
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        if getattr(h, "stream", None) is sys.stdout:
+            root.removeHandler(h)
+    if not root.handlers:
+        root.addHandler(logging.StreamHandler(sys.stderr))
+
+
+_silence_http_logging()
 
 # ==============================================================================
 # Configuration

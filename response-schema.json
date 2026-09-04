@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "MCP server family response envelope",
-  "description": "The unified response envelope emitted by mediation.build_envelope, vendored byte-identically into cinii-mcp, jstage-mcp, ndl-mcp and korea-scholarship-mcp. Schema version 2.2.0. Every interpretation key is a typed field, never prose: the envelope reports what was searched and how the result set should be read, and never composes a summary or a relevance score. Diagnostic codes are a closed per-server registry documented in each README, so `code` is constrained here only as a string.",
+  "description": "The unified response envelope emitted by mediation.build_envelope, vendored byte-identically into cinii-mcp, jstage-mcp, ndl-mcp, korea-scholarship-mcp, semantic-scholar-mcp and openalex-mcp. Schema version 2.3.0. Every interpretation key is a typed field, never prose: the envelope reports what was searched and how the result set should be read, and never composes a summary or a relevance score. Diagnostic codes are a closed per-server registry documented in each README, so `code` is constrained here only as a string.",
   "type": "object",
   "required": [
     "server",
