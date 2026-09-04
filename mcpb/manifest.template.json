@@ -1,0 +1,79 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "cinii-mcp",
+  "display_name": "CiNii Research (bibliograph)",
+  "version": "3.0.0",
+  "description": "CiNii Research (NII): Japanese articles, books, dissertations, KAKEN projects and researchers, with typed envelopes and query receipts.",
+  "long_description": "One of the six bibliograph MCP servers (https://github.com/ckgerteis/bibliograph-mcp). Every search answers with one typed JSON envelope: the term actually sent and its script, how the source matched it, how broad the set is, typed diagnostics, a receipt hash, and the provider's attribution. Receipts can be deposited to an append-only, hash-chained ledger so a search behind a footnote can be named and re-run. Requires a Python 3.10+ interpreter on this machine; the bundle carries every library it needs.",
+  "author": {
+    "name": "Christopher Gerteis",
+    "email": "christopher.gerteis@gmail.com",
+    "url": "https://www.christophergerteis.net"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ckgerteis/cinii-mcp.git"
+  },
+  "homepage": "https://github.com/ckgerteis/cinii-mcp",
+  "documentation": "https://github.com/ckgerteis/cinii-mcp#readme",
+  "support": "https://github.com/ckgerteis/cinii-mcp/issues",
+  "license": "MIT",
+  "keywords": [
+    "bibliographic-search",
+    "cinii",
+    "digital-humanities",
+    "japanese-studies",
+    "kaken",
+    "mcp",
+    "model-context-protocol",
+    "nii",
+    "query-receipts",
+    "scholarly-metadata"
+  ],
+  "server": {
+    "type": "python",
+    "entry_point": "server/main.py",
+    "mcp_config": {
+      "command": "__PYTHON__",
+      "args": [
+        "${__dirname}/server/main.py"
+      ],
+      "env": {
+        "CINII_APPID": "${user_config.cinii_appid}",
+        "MCP_RECEIPT_DIR": "${user_config.receipts_dir}",
+        "MCP_RECEIPT_SESSION": "${user_config.receipt_session}"
+      }
+    }
+  },
+  "user_config": {
+    "cinii_appid": {
+      "type": "string",
+      "title": "CiNii application ID",
+      "description": "Free from https://api.ci.nii.ac.jp/en/ — required; every request carries it.",
+      "sensitive": true,
+      "required": true
+    },
+    "receipts_dir": {
+      "type": "directory",
+      "title": "Receipts folder",
+      "description": "Where this server deposits its append-only, hash-chained query receipts (one <server>.jsonl per server). Leave empty to run without receipts; the envelope will then say RECEIPT_NOT_DEPOSITED.",
+      "required": false
+    },
+    "receipt_session": {
+      "type": "string",
+      "title": "Receipt session slug",
+      "description": "A project or article slug stamped on every receipt, e.g. risk-of-history-2026. Optional.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "__PLATFORM__"
+    ],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  }
+}

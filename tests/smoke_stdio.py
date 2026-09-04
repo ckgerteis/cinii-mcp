@@ -19,16 +19,36 @@ import re
 import subprocess
 import sys
 import time
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ImportError:  # Python 3.10: no tomllib; a regex over [project] is enough here
+    tomllib = None
+
+
+def _load_project(text: str) -> dict:
+    """[project] name/version/scripts, via tomllib where present."""
+    if tomllib is not None:
+        return tomllib.loads(text)["project"]
+    proj: dict = {}
+    body = text.split("[project]", 1)[1]
+    for key in ("name", "version"):
+        m = re.search(rf'^{key}\s*=\s*"([^"]+)"', body, re.M)
+        if m:
+            proj[key] = m.group(1)
+    proj["scripts"] = {}
+    if "[project.scripts]" in text:
+        section = text.split("[project.scripts]", 1)[1].split("\n[", 1)[0]
+        proj["scripts"] = dict(re.findall(r'^([\w-]+)\s*=\s*"([^"]+)"', section, re.M))
+    return proj
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def _console_script() -> str:
     """The first [project.scripts] entry that is not the ledger CLI."""
-    py = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    scripts = py.get("project", {}).get("scripts", {})
+    scripts = _load_project((ROOT / "pyproject.toml").read_text(encoding="utf-8")).get("scripts", {})
     for name in scripts:
         if not name.endswith("-ledger"):
             return name

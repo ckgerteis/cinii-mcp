@@ -112,8 +112,31 @@ The same application ID also works for the KAKEN API, which `cinii_search_kaken`
 
 ## Install
 
-The package installs a `cinii-mcp` console script. It is namespaced, so it can
-share one environment with the rest of this server family.
+Three routes. All three give you the same server; pick by how much you want to see of it.
+
+### One click: the Claude Desktop bundle
+
+Download the `.mcpb` for your platform from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain. The bundle carries every library it needs, but not Python itself: a Python 3.10+ interpreter must be on the machine (`python` on Windows, `python3` on macOS and Linux).
+
+### From GitHub, pinned to a release
+
+```bash
+pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.0.0"
+# or, without an environment of your own:
+uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.0.0" cinii-mcp
+```
+
+installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the thing to cite; `@main` gets whatever is current. Then register it in Claude Desktop (below), or let `install.py` do that.
+
+### The whole family
+
+```bash
+pip install "git+https://github.com/ckgerteis/bibliograph-mcp@v1.0.0" && bibliograph install
+```
+
+installs all six servers and registers them together — one receipts folder, credentials asked for once. See [bibliograph-mcp](https://github.com/ckgerteis/bibliograph-mcp). From a checkout of this repository, `python install.py` does the same for this server alone, `python install.py --all` for the six, on Windows, macOS and Linux; `install.ps1` remains for Windows.
+
+### From source
 
 ```bash
 python3 -m venv .venv
@@ -152,7 +175,7 @@ complete install of this server and nothing else.
 
 They do share three things: a response envelope, a query ledger, and — if you
 run more than one — a receipts folder. `install.ps1` is vendored byte-identical
-into all six and handles that. **It installs this server by default**, because
+into all six and handles that on Windows; `install.py` is its cross-platform port. **Both install this server by default**, because
 cloning one repository is not a request for five more.
 
 ```powershell
