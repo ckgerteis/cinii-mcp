@@ -121,9 +121,9 @@ Download the `.mcpb` for your platform (Windows x64, Apple Silicon, Linux x64; I
 ### From GitHub, pinned to a release
 
 ```bash
-pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.0.0"
+pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.0.1"
 # or, without an environment of your own:
-uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.0.0" cinii-mcp
+uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.0.1" cinii-mcp
 ```
 
 installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the thing to cite; `@main` gets whatever is current. Then register it in Claude Desktop (below), or let `install.py` do that.

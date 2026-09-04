@@ -3,7 +3,7 @@
   "manifest_version": "0.4",
   "name": "cinii-mcp",
   "display_name": "CiNii Research (bibliograph)",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "CiNii Research (NII): Japanese articles, books, dissertations, KAKEN projects and researchers, with typed envelopes and query receipts.",
   "long_description": "One of the six bibliograph MCP servers (https://github.com/ckgerteis/bibliograph-mcp). Every search answers with one typed JSON envelope: the term actually sent and its script, how the source matched it, how broad the set is, typed diagnostics, a receipt hash, and the provider's attribution. Receipts can be deposited to an append-only, hash-chained ledger so a search behind a footnote can be named and re-run. Requires a Python 3.10+ interpreter on this machine; the bundle carries every library it needs.",
   "author": {

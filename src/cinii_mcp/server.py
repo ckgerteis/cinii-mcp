@@ -1,5 +1,5 @@
 """
-CiNii Research MCP Server (v3.0.0)
+CiNii Research MCP Server (v3.0.1)
 ==================================
 An MCP server for searching Japan's national academic information database
 (CiNii Research), operated by the National Institute of Informatics (NII).
@@ -32,7 +32,7 @@ except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
 
 from . import mediation as M
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 
 
 def _silence_http_logging() -> None:
@@ -49,6 +49,10 @@ def _silence_http_logging() -> None:
         lg = logging.getLogger(name)
         lg.setLevel(logging.WARNING)
         lg.propagate = False
+    # The MCP SDK logs every request it handles at INFO ("Processing request
+    # of type ListToolsRequest"). Noise, not a leak; still, stderr should
+    # carry faults only.
+    logging.getLogger("mcp").setLevel(logging.WARNING)
     root = logging.getLogger()
     for h in list(root.handlers):
         if getattr(h, "stream", None) is sys.stdout:
@@ -166,6 +170,47 @@ def _lit(v, lang: Optional[str] = None) -> Optional[str]:
     return None
 
 
+def _pair(v) -> tuple[Optional[str], Optional[str]]:
+    """(ja, en) from a JSON-LD literal list. Language-tagged values go where
+    their tag says; an untagged value is routed by its script, once. Until
+    3.0.1 the untagged case was read twice — `_lit(v, "ja")` and `_lit(v, "en")`
+    both fell through to the same value — so a Japanese title was also reported
+    as its own English title."""
+    if v is None:
+        return (None, None)
+    if isinstance(v, (str, dict)):
+        return _split_lang(_lit(v))
+    ja = en = None
+    untagged: list[str] = []
+    for x in v:
+        if isinstance(x, str):
+            untagged.append(x)
+        elif isinstance(x, dict) and x.get("@value"):
+            lang = x.get("@language")
+            if lang == "ja" and ja is None:
+                ja = x["@value"]
+            elif lang == "en" and en is None:
+                en = x["@value"]
+            elif not lang:
+                untagged.append(x["@value"])
+    for s in untagged:
+        sja, sen = _split_lang(s)
+        ja = ja or sja
+        en = en or sen
+    return (ja, en)
+
+
+def _typed_identifier(entries, kind: str) -> Optional[str]:
+    """`{"identifier": {"@type": kind, "@value": ...}}` or `{"@type": kind, ...}`."""
+    if not isinstance(entries, list):
+        return None
+    for e in entries:
+        node = e.get("identifier", e) if isinstance(e, dict) else None
+        if isinstance(node, dict) and node.get("@type") == kind and node.get("@value"):
+            return str(node["@value"])
+    return None
+
+
 def _item_from_record(d: dict) -> dict:
     """Parse a CiNii Research single-record JSON-LD (/crid/<id>.json) into an
     envelope item. This schema differs from the OpenSearch item schema: titles
@@ -176,25 +221,34 @@ def _item_from_record(d: dict) -> dict:
         rt = rt[0] if rt else None
     record_type = _RECORD_TYPE.get(rt, "article")
 
-    title_ja = _lit(d.get("dc:title"), "ja")
-    title_en = _lit(d.get("dc:title"), "en")
+    title_ja, title_en = _pair(d.get("dc:title"))
 
+    # Authors sit under `creator` as Researcher nodes with language-tagged
+    # foaf:name lists; `dc:creator` is the older flat form. Until 3.0.1 only
+    # the flat form was read, so a fetched record came back with no authors.
     authors = []
-    dcc = d.get("dc:creator")
-    if isinstance(dcc, str):
-        dcc = [dcc]
-    if isinstance(dcc, list):
-        for c in dcc[:12]:
-            name = c if isinstance(c, str) else _lit(c)
-            if name:
-                cja, cen = _split_lang(name)
+    for c in (d.get("creator") or [])[:12]:
+        if isinstance(c, dict):
+            cja, cen = _pair(c.get("foaf:name"))
+            if cja or cen:
                 authors.append({"ja": cja, "en": cen})
+    if not authors:
+        dcc = d.get("dc:creator")
+        if isinstance(dcc, str):
+            dcc = [dcc]
+        if isinstance(dcc, list):
+            for c in dcc[:12]:
+                name = c if isinstance(c, str) else _lit(c)
+                if name:
+                    cja, cen = _split_lang(name)
+                    authors.append({"ja": cja, "en": cen})
 
-    journal_ja = journal_en = volume = issue = pages = year = doi = None
+    journal_ja = journal_en = volume = issue = pages = year = doi = issn = None
+    naid = _typed_identifier(d.get("productIdentifier"), "NAID")
     pub = d.get("publication")
     if isinstance(pub, dict):
-        journal_ja = _lit(pub.get("prism:publicationName"), "ja")
-        journal_en = _lit(pub.get("prism:publicationName"), "en")
+        journal_ja, journal_en = _pair(pub.get("prism:publicationName"))
+        issn = _typed_identifier(pub.get("publicationIdentifier"), "ISSN")
         volume = pub.get("prism:volume")
         issue = pub.get("prism:number")
         sp, ep = pub.get("prism:startingPage"), pub.get("prism:endingPage")
@@ -204,8 +258,8 @@ def _item_from_record(d: dict) -> dict:
     if record_type == "book":
         pubs = d.get("dcterms:publisher")
         if isinstance(pubs, list) and pubs and isinstance(pubs[0], dict):
-            journal_ja = journal_ja or _lit(pubs[0].get("dc:publisher"), "ja")
-            journal_en = journal_en or _lit(pubs[0].get("dc:publisher"), "en")
+            pja, pen = _pair(pubs[0].get("dc:publisher"))
+            journal_ja, journal_en = journal_ja or pja, journal_en or pen
     if year is None:
         mm = re.search(r"(\d{4})", str(_lit(d.get("dc:date")) or ""))
         year = int(mm.group(1)) if mm else None
@@ -222,7 +276,7 @@ def _item_from_record(d: dict) -> dict:
         volume=str(volume) if volume else None,
         issue=str(issue) if issue else None,
         pages=str(pages) if pages else None,
-        year=year, doi=doi, crid=crid, url_ja=url,
+        year=year, doi=doi, crid=crid, naid=naid, issn=issn, url_ja=url,
         matched_in="metadata", record_type=record_type,
     )
 

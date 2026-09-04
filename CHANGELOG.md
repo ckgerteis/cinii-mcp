@@ -7,14 +7,31 @@ the text and, where a version DOI exists, cited by it.
 Releases earlier than those below are on the repository's releases page; this
 file begins where the record is precise enough to be worth writing down.
 
-## 3.0.0 — 2026-08-23
+## 3.0.1 — 2026-09-04
 
-**Not released.** No tag was cut and no Zenodo record exists for this version, so
-it is citable by commit alone. Tagging waits on confirmation that this
-repository's Zenodo webhook is live: a release that mints nothing spends a
-version number and returns nothing citable for it.
+- **`cinii_get_record` returns what the record holds.** The single-record
+  JSON-LD was read with the OpenSearch schema's assumptions. An untagged
+  Japanese title was reported as its own English title as well (`_lit(v, "ja")`
+  and `_lit(v, "en")` both fell through to the same value); the `creator`
+  nodes, where CiNii puts authors as language-tagged `foaf:name` lists, were
+  not read at all, so a fetched record had no authors; NAID and ISSN were
+  dropped. Found on 2026-09-04 by fetching a record the search had just
+  returned and comparing the two. Language-tagged values now go where their
+  tag says and untagged values are routed by script once; authors come from
+  `creator` with `dc:creator` as fallback; NAID and ISSN are carried.
+  `tests/test_parse.py` checks two records captured from CiNii.
+- The MCP SDK's per-request INFO lines no longer reach stderr.
+- CI runs `pytest` as well as the stdio smoke test.
+- The 3.0.0 entry below no longer describes itself as unreleased; it was
+  tagged and released on 2026-09-04, and archived as 10.5281/zenodo.22304321.
 
-### Since 2026-09-04, still under 3.0.0 (unreleased)
+## 3.0.0 — 2026-09-04
+
+Tagged and released on GitHub on 2026-09-04; Zenodo 10.5281/zenodo.22304321. The
+version was first written on 2026-08-23 and held until the release pipeline
+existed.
+
+### Added on 2026-09-04, released with the tag
 
 - **Released on GitHub as a package.** `.github/workflows/release.yml` runs
   on a `vX.Y.Z` tag: tests on three OSes, wheel and sdist, one Claude

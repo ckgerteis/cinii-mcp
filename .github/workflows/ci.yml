@@ -19,6 +19,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --upgrade pip
       - run: python -m pip install ".[test]"
+      - run: python -m pytest -q tests
       - run: python tests/smoke_stdio.py
       - name: Vendored files are byte-identical to the family reference
         run: python mcpb/build.py --check-identity
