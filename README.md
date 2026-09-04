@@ -116,7 +116,7 @@ Three routes. All three give you the same server; pick by how much you want to s
 
 ### One click: the Claude Desktop bundle
 
-Download the `.mcpb` for your platform from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain. The bundle carries every library it needs, but not Python itself: a Python 3.10+ interpreter must be on the machine (`python` on Windows, `python3` on macOS and Linux).
+Download the `.mcpb` for your platform (Windows x64, Apple Silicon, Linux x64; Intel Macs use the pip route below) from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain. The bundle carries every library it needs, but not Python itself: a Python 3.10+ interpreter must be on the machine (`python` on Windows, `python3` on macOS and Linux).
 
 ### From GitHub, pinned to a release
 

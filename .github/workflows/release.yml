@@ -68,8 +68,9 @@ jobs:
             platform: win32-x64
           - os: macos-latest
             platform: darwin-arm64
-          - os: macos-13
-            platform: darwin-x64
+          # No darwin-x64 bundle: GitHub retired its Intel macOS runners, and
+          # a job on a retired label queues forever and blocks the release.
+          # Intel Macs install with pip from the release tag instead.
           - os: ubuntu-latest
             platform: linux-x64
     steps:
