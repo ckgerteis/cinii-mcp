@@ -16,6 +16,17 @@ version number and returns nothing citable for it.
 
 ### Since 2026-09-04, still under 3.0.0 (unreleased)
 
+- **Released on GitHub as a package.** `.github/workflows/release.yml` runs
+  on a `vX.Y.Z` tag: tests on three OSes, wheel and sdist, one Claude
+  Desktop `.mcpb` bundle per platform, then a GitHub release carrying all of
+  them. Installable pinned to the tag with `pip install
+  "git+https://github.com/ckgerteis/cinii-mcp@vX.Y.Z"` or `uvx --from`
+  the same URL. The release is what fires the Zenodo webhook. Nothing is
+  published to a package index.
+- **Suite install.** `install.py` is the cross-platform port of `install.ps1`
+  (Windows, macOS, Linux; same behaviour, importable). The family is also
+  installable as one package, `bibliograph-mcp`, whose `bibliograph install`
+  registers all six with one receipts folder.
 - **httpx request logging silenced.** The appid travels in the query string
   and httpx logs the full URL at INFO, so a default logging configuration
   wrote the credential to the stderr Claude Desktop captures. The rest of the

@@ -9,28 +9,51 @@ authors = [
     { name = "Christopher Gerteis", email = "christopher.gerteis@gmail.com" },
 ]
 keywords = [
+    "bibliographic-search",
+    "cinii",
+    "digital-humanities",
+    "east-asian-studies",
+    "japanese-studies",
+    "kaken",
     "mcp",
     "model-context-protocol",
-    "cinii",
     "nii",
-    "japanese-studies",
-    "east-asian-studies",
-    "digital-humanities",
-    "bibliographic-search",
+    "query-receipts",
+    "scholarly-metadata",
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Text Processing :: Indexing",
+]
+
 dependencies = [
     "mcp[cli]>=1.2.0",
     "httpx>=0.27.0",
     "pydantic>=2.7.0",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=8", "jsonschema>=4"]
+
 [project.scripts]
 cinii-mcp = "cinii_mcp:main"
 cinii-mcp-ledger = "cinii_mcp.ledger:_cli"
 
 [project.urls]
-Homepage = "https://www.christophergerteis.net"
+Homepage = "https://github.com/ckgerteis/cinii-mcp"
 Repository = "https://github.com/ckgerteis/cinii-mcp"
+Changelog = "https://github.com/ckgerteis/cinii-mcp/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ckgerteis/cinii-mcp/issues"
+Suite = "https://github.com/ckgerteis/bibliograph-mcp"
 
 [build-system]
 requires = ["hatchling"]
@@ -55,6 +78,8 @@ include = [
     "/CITATION.cff",
     "/CHANGELOG.md",
     "/install.ps1",
+    "/install.py",
+    "/mcpb",
     "/response-schema.json",
     "/.env.example",
 ]
