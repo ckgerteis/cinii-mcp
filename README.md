@@ -158,7 +158,7 @@ cloning one repository is not a request for five more.
 ```powershell
 .\install.ps1                        # this server
 .\install.ps1 -All                   # all six
-.\install.ps1 -Servers cinii,cinii         # a chosen subset
+.\install.ps1 -Servers cinii,ndl           # a chosen subset
 ```
 
 Whatever subset you name is registered against one receipts folder, asked for
@@ -219,6 +219,14 @@ NII enforces usage rules; breaking them can get your access blocked or your regi
 ## Citation
 
 If this software supports your research, please cite it. See [`CITATION.cff`](CITATION.cff), or use the "Cite this repository" button on GitHub.
+
+## Tests
+
+```bash
+.venv/bin/python tests/smoke_stdio.py
+```
+
+Starts the installed console script over stdio, performs the MCP handshake, and checks `tools/list` against the tool table above; exits non-zero on a mismatch. `RUN_LIVE=1 … <tool> '<json params>'` adds one live call and reports the envelope's diagnostic codes.
 
 ## License
 

@@ -14,6 +14,19 @@ it is citable by commit alone. Tagging waits on confirmation that this
 repository's Zenodo webhook is live: a release that mints nothing spends a
 version number and returns nothing citable for it.
 
+### Since 2026-09-04, still under 3.0.0 (unreleased)
+
+- **httpx request logging silenced.** The appid travels in the query string
+  and httpx logs the full URL at INFO, so a default logging configuration
+  wrote the credential to the stderr Claude Desktop captures. The rest of the
+  family already muted it; this server had not.
+- `tests/smoke_stdio.py`: stdio handshake, `tools/list` checked against the
+  README table, optional live call. Vendored byte-identical across the six.
+- `response-schema.json`'s self-description said 2.2.0 and named four
+  servers; it now says 2.3.0 and names six. Text only; the schema is unchanged.
+- Module docstring banner corrected from v2.0.0 to v3.0.0; README subset
+  example corrected (`-Servers cinii,ndl`, not `cinii,cinii`).
+
 - **A receipts folder, and one chain per server.** `ledger.py` 1.1.0 adds
   `MCP_RECEIPT_DIR`: point it at a directory and each server writes its own
   `<server>.jsonl` inside it. `MCP_RECEIPT_LOG` still names a single file and is
