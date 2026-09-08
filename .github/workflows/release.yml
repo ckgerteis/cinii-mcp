@@ -118,7 +118,7 @@ jobs:
           path: artefacts/
       - name: Release notes from CHANGELOG
         run: python mcpb/build.py --release-notes "${{ github.ref_name }}" > notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           body_path: notes.md
           files: |
