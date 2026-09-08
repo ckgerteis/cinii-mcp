@@ -111,9 +111,15 @@ def _rpc(proc: subprocess.Popen, msgs: list[dict], want: set[int], wait: float) 
 
 def main() -> int:
     script = _console_script()
-    exe = Path(sys.executable).parent / script
-    if not exe.exists():
-        exe = Path(script)  # rely on PATH
+    # The console script lives in the interpreter's scripts directory, which
+    # sysconfig knows (Scripts\ beside python.exe in a Windows venv, bin/ on
+    # POSIX, and elsewhere for a Windows install with no venv); on Windows it
+    # carries .exe. Only if neither form exists fall back to PATH.
+    import sysconfig
+    suffix = ".exe" if sys.platform == "win32" else ""
+    candidates = [Path(sysconfig.get_path("scripts")) / (script + suffix),
+                  Path(sys.executable).parent / (script + suffix)]
+    exe = next((c for c in candidates if c.exists()), Path(script))  # last: rely on PATH
     init = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
          "params": {"protocolVersion": "2024-11-05", "capabilities": {},

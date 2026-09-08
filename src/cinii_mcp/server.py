@@ -1,5 +1,5 @@
 """
-CiNii Research MCP Server (v3.0.1)
+CiNii Research MCP Server (v3.1.0)
 ==================================
 An MCP server for searching Japan's national academic information database
 (CiNii Research), operated by the National Institute of Informatics (NII).
@@ -32,7 +32,7 @@ except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
 
 from . import mediation as M
 
-__version__ = "3.0.1"
+__version__ = "3.1.0"
 
 
 def _silence_http_logging() -> None:
@@ -71,7 +71,7 @@ CINII_APPID = os.environ.get("CINII_APPID", "")
 BASE_URL = "https://cir.nii.ac.jp"
 OPENSEARCH_V2 = f"{BASE_URL}/opensearch/v2"
 TIMEOUT = 30.0
-ATTRIBUTION = "Data via CiNii Research, National Institute of Informatics (NII)."
+ATTRIBUTION = "Data via CiNii Research (https://cir.nii.ac.jp/), National Institute of Informatics (NII)."
 MATCHING_MODE = "metadata_conjunction"
 ARTICLE_COVERAGE_NOTE = (
     "The CiNii article index excludes most monographs and book chapters; "

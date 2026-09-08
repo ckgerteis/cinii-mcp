@@ -3,9 +3,9 @@
   "manifest_version": "0.4",
   "name": "cinii-mcp",
   "display_name": "CiNii Research (bibliograph)",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "CiNii Research (NII): Japanese articles, books, dissertations, KAKEN projects and researchers, with typed envelopes and query receipts.",
-  "long_description": "One of the six bibliograph MCP servers (https://github.com/ckgerteis/bibliograph-mcp). Every search answers with one typed JSON envelope: the term actually sent and its script, how the source matched it, how broad the set is, typed diagnostics, a receipt hash, and the provider's attribution. Receipts can be deposited to an append-only, hash-chained ledger so a search behind a footnote can be named and re-run. Requires a Python 3.10+ interpreter on this machine; the bundle carries every library it needs.",
+  "long_description": "One of the six bibliograph MCP servers (https://github.com/ckgerteis/bibliograph-mcp). Every search answers with one typed JSON envelope: the term actually sent and its script, how the source matched it, how broad the set is, typed diagnostics, a receipt hash, and the provider's attribution. Receipts can be deposited to an append-only, hash-chained ledger so a search behind a footnote can be named and re-run. Needs no Python of its own: Claude Desktop runs the bundle with uv, which provisions Python 3.13 and the libraries on first launch (a download of roughly 60 MB, cached; later launches take under a second).",
   "author": {
     "name": "Christopher Gerteis",
     "email": "christopher.gerteis@gmail.com",
@@ -32,11 +32,15 @@
     "scholarly-metadata"
   ],
   "server": {
-    "type": "python",
+    "type": "uv",
     "entry_point": "server/main.py",
     "mcp_config": {
-      "command": "__PYTHON__",
+      "command": "uv",
       "args": [
+        "--directory",
+        "${__dirname}/server",
+        "run",
+        "--frozen",
         "${__dirname}/server/main.py"
       ],
       "env": {
@@ -63,14 +67,16 @@
     "receipt_session": {
       "type": "string",
       "title": "Receipt session slug",
-      "description": "A project or article slug stamped on every receipt, e.g. risk-of-history-2026. Optional.",
+      "description": "A project or article slug stamped on every receipt, e.g. my-article-2026. Optional.",
       "required": false
     }
   },
   "compatibility": {
     "claude_desktop": ">=0.10.0",
     "platforms": [
-      "__PLATFORM__"
+      "darwin",
+      "linux",
+      "win32"
     ],
     "runtimes": {
       "python": ">=3.10"

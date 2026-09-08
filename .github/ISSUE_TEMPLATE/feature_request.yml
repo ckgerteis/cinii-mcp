@@ -1,0 +1,30 @@
+name: Feature request
+description: A tool, parameter or envelope field the server should have.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This server reports what its source returns and how it matched, in one typed envelope. Requests that fit
+        that shape are the ones most likely to land; requests for the server to rank, summarise or interpret on
+        the user's behalf are out of scope by design (see the README, "What the server will not do").
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: >-
+        The research task, in a sentence or two, and where the current tools stop short.
+    validations:
+      required: true
+  - type: textarea
+    id: upstream
+    attributes:
+      label: What the upstream API offers for it
+      description: >-
+        A link to the endpoint or parameter in the source's own documentation, if you know it. The server can only expose what the source provides.
+  - type: textarea
+    id: shape
+    attributes:
+      label: What the answer should look like
+      description: >-
+        Which fields of the envelope would carry it, or what a new field would say.

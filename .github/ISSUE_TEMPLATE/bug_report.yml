@@ -1,0 +1,62 @@
+name: Bug report
+description: Something answered wrongly, failed to start, or did not match the README.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. The fields below are what is needed to reproduce a report without a second round.
+        Remove any credential (application ID, API key) from anything you paste.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        The release you installed (`cinii-mcp --version` is not reliable; check the release tag, the bundle filename, or the `serverInfo.version` in the log).
+      placeholder: v3.0.1
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: How it was installed
+      options:
+        - Claude Desktop bundle (.mcpb)
+        - pip from the release tag
+        - uvx from the release tag
+        - install.py / install.ps1 from a checkout
+        - bibliograph-mcp (the suite)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and Python
+      description: >-
+        For the pip route, the output of `python --version` in the environment you installed into. For the bundle, the OS is enough.
+      placeholder: Windows 11, Python 3.13.4
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: >-
+        The tool called and its parameters, and what came back (the envelope, or "Server disconnected"). If the server did not start, paste the log tail here. Windows: %APPDATA%\Claude\logs\mcp-server-<name>.log; macOS: ~/Library/Logs/Claude/mcp-server-<name>.log. Paste the last twenty lines of the most recent launch. Remove any credential before pasting.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: >-
+        What the README or the upstream API's own site says should have happened.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed credentials from everything pasted above.
+          required: true
+        - label: I looked at the Troubleshooting section of the README (for a start-up failure).

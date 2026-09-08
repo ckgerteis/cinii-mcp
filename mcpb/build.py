@@ -1,22 +1,29 @@
-#!/usr/bin/env python3
-"""Build a Claude Desktop .mcpb bundle for this server; check vendored-file identity; cut release notes.
+"""Build the Claude Desktop bundle (.mcpb) for this server.
 
-Vendored byte-identical into every repository of the family. It reads what it
-needs from pyproject.toml and mcpb/manifest.template.json, so the file itself
-carries nothing server-specific.
+    python mcpb/build.py                              # one bundle: dist/<name>-<version>.mcpb
+    python mcpb/build.py --check-identity             # vendored files match VENDORED.sha256
+    python mcpb/build.py --write-identity             # regenerate VENDORED.sha256
+    python mcpb/build.py --release-notes v3.0.0       # print that version's CHANGELOG section
 
-    python mcpb/build.py --platform win32-x64        # build/<platform>/ then dist/<name>-<version>-<platform>.mcpb
-    python mcpb/build.py --check-identity            # vendored family files match VENDORED.sha256
-    python mcpb/build.py --write-identity            # regenerate VENDORED.sha256 (do this in all six at once)
-    python mcpb/build.py --release-notes v3.0.0      # print that version's CHANGELOG section
+The bundle vendors no libraries. Its manifest declares server.type "uv"
+(manifest 0.4), so Claude Desktop runs it with uv: a uv already on the PATH if
+there is one, otherwise the uv the app ships and, failing that, one it
+downloads. uv reads server/pyproject.toml, server/.python-version and
+server/uv.lock, provisions the pinned interpreter where the machine has none,
+and installs the locked dependencies on first launch. One bundle serves every
+platform, because nothing in it is compiled.
 
-Why one bundle per platform: pydantic-core ships as a native wheel, so the
-libraries vendored under server/lib are platform-specific. The release
-workflow runs this once per OS in a matrix and attaches all of them.
+Why this replaced the vendored-lib bundle: `pip install --target` vendors
+native wheels (pydantic-core, rpds-py, cffi) tagged for the interpreter that
+runs the build, and the release workflow pinned that to CPython 3.12 while the
+manifest promised >=3.10 and launched whatever `python` the user's PATH held.
+Every published bundle imported under 3.12 alone and failed silently elsewhere
+("Server disconnected"). Locking rather than vendoring removes the ABI
+coupling instead of multiplying it.
 
-Why the bundle still needs Python: MCPB carries no interpreter for Python
-servers. Claude Desktop launches `python` (Windows) or `python3` (macOS,
-Linux) from PATH; the manifest declares runtimes.python >= 3.10.
+The lock is written at build time by the uv that builds, so the bundle pins
+what CI resolved on the release day; tests/bundle_handshake.py then runs the
+built bundle under interpreters other than the pinned one.
 """
 from __future__ import annotations
 
@@ -54,14 +61,10 @@ def _load_project(text: str) -> dict:
     return proj
 
 ROOT = Path(__file__).resolve().parent.parent
-PLATFORMS = {
-    "win32-x64": ("win32", "python"),
-    "win32-arm64": ("win32", "python"),
-    "darwin-arm64": ("darwin", "python3"),
-    "darwin-x64": ("darwin", "python3"),
-    "linux-x64": ("linux", "python3"),
-    "linux-arm64": ("linux", "python3"),
-}
+# The interpreter uv provisions for the bundle. One version, so that what the
+# release gate ran is what the user runs; the lock itself resolves for every
+# interpreter pyproject allows, and the gate proves that too.
+PYTHON_PIN = "3.13"
 # Files that must be byte-identical across the family. Paths relative to the
 # repo root; the package-relative ones are resolved through pyproject.
 VENDORED = [
@@ -70,6 +73,7 @@ VENDORED = [
     "install.py",
     "mcpb/build.py",
     "tests/smoke_stdio.py",
+    "tests/bundle_handshake.py",
     "{pkg}/ledger.py",
     "{pkg}/mediation.py",
 ]
@@ -112,7 +116,7 @@ def write_identity() -> None:
     for rel, p in _vendored_paths():
         if p.exists():
             lines.append(f"{_sha(p)}  {rel}")
-    (ROOT / "VENDORED.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (ROOT / "VENDORED.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote VENDORED.sha256 ({len(lines)} files)")
 
 
@@ -160,57 +164,61 @@ def release_notes(tag: str) -> str:
 
 # ---------------------------------------------------------------- bundle
 
-def build(platform: str, python_exe: str | None) -> Path:
-    if platform not in PLATFORMS:
-        sys.exit(f"unknown platform {platform}; one of {', '.join(PLATFORMS)}")
-    os_name, command = PLATFORMS[platform]
+def _uv(explicit: str | None) -> str:
+    uv = explicit or os.environ.get("UV") or shutil.which("uv")
+    if not uv:
+        sys.exit("uv is needed to write the bundle's lock file; install it "
+                 "(https://docs.astral.sh/uv/) or pass --uv PATH")
+    return uv
+
+
+def build(uv_exe: str | None) -> Path:
     proj = _pyproject()
     name, version = proj["name"], proj["version"]
     template = json.loads((ROOT / "mcpb" / "manifest.template.json").read_text(encoding="utf-8"))
     if template["version"] != version:
         sys.exit(f"manifest.template.json says {template['version']}, pyproject says {version}")
+    if template["server"]["type"] != "uv":
+        sys.exit('manifest.template.json must declare server.type "uv"; this build vendors nothing')
 
-    out = ROOT / "build" / platform
+    out = ROOT / "build" / "bundle"
     if out.exists():
         shutil.rmtree(out)
-    lib = out / "server" / "lib"
-    lib.mkdir(parents=True)
+    server = out / "server"
+    server.mkdir(parents=True)
 
-    # Vendor the package and every dependency for this interpreter/platform.
-    py = python_exe or sys.executable
-    subprocess.run(
-        [py, "-m", "pip", "install", "--quiet", "--no-compile", "--target", str(lib), str(ROOT)],
-        check=True,
-    )
-    # Console-script shims and dist-info are not needed at runtime; leave
-    # dist-info (harmless, records versions) and drop bin/.
-    for junk in ("bin", "Scripts"):
-        shutil.rmtree(lib / junk, ignore_errors=True)
-    shutil.copy(ROOT / "mcpb" / "main.py", out / "server" / "main.py")
+    # The project, as uv will see it: sources, metadata, and the files
+    # pyproject refers to. No lib tree, no venv.
+    shutil.copytree(ROOT / "src", server / "src", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    for f in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copy(ROOT / f, server / f)
+    shutil.copy(ROOT / "mcpb" / "main.py", server / "main.py")
+    (server / ".python-version").write_text(PYTHON_PIN + "\n", encoding="utf-8")
+    subprocess.run([_uv(uv_exe), "lock", "--directory", str(server)], check=True)
+    if not (server / "uv.lock").exists():
+        sys.exit("uv lock wrote no uv.lock")
+
     for extra in ("response-schema.json", "LICENSE", "README.md", "CHANGELOG.md"):
         if (ROOT / extra).exists():
             shutil.copy(ROOT / extra, out / extra)
-
-    manifest = json.loads(json.dumps(template).replace("__PYTHON__", command).replace("__PLATFORM__", os_name))
-    manifest["compatibility"]["platforms"] = [os_name]
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (out / "manifest.json").write_text(json.dumps(template, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
-    bundle = dist / f"{name}-{version}-{platform}.mcpb"
+    bundle = dist / f"{name}-{version}.mcpb"
     with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as z:
         for p in sorted(out.rglob("*")):
-            if p.is_file() and "__pycache__" not in p.parts:
+            if p.is_file() and "__pycache__" not in p.parts and ".venv" not in p.parts:
                 z.write(p, p.relative_to(out).as_posix())
     size = bundle.stat().st_size // 1024
-    print(f"built {bundle.relative_to(ROOT)} ({size} KB) for {platform}: command={command}")
+    print(f"built {bundle.relative_to(ROOT)} ({size} KB): server.type=uv, python pin {PYTHON_PIN}, "
+          f"platforms {', '.join(template['compatibility']['platforms'])}")
     return bundle
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--platform", choices=sorted(PLATFORMS))
-    ap.add_argument("--python", help="interpreter whose pip vendors the libraries (default: this one)")
+    ap.add_argument("--uv", help="uv executable that writes the lock (default: UV env var, then PATH)")
     ap.add_argument("--check-identity", action="store_true")
     ap.add_argument("--write-identity", action="store_true")
     ap.add_argument("--release-notes", metavar="TAG")
@@ -223,11 +231,8 @@ def main() -> int:
     if a.release_notes:
         sys.stdout.write(release_notes(a.release_notes))
         return 0
-    if a.platform:
-        build(a.platform, a.python)
-        return 0
-    ap.print_help()
-    return 2
+    build(a.uv)
+    return 0
 
 
 if __name__ == "__main__":

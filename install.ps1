@@ -35,10 +35,18 @@
     folder, so running them together is the case the script is shaped around —
     but it is opted into, not assumed.
 
+.PARAMETER VenvDir
+    Where to install: a virtual environment is created there if none exists,
+    and Claude Desktop is pointed at the console scripts inside it. If not
+    passed, the script asks, offering %APPDATA%\Claude\mcp-servers\.venv.
+    Run without a console it does not guess: pass -VenvDir or it stops.
+
 .PARAMETER ReceiptsDir
     The receipts folder. If not passed, the script asks; the answer offered is
     whatever the already-registered servers use, and failing that
-    %APPDATA%\Claude\mcp-receipts. No path is written into this file.
+    %APPDATA%\Claude\mcp-receipts. Run without a console it does not guess:
+    pass -ReceiptsDir or -NoReceipts or it stops. No path is written into
+    this file.
 
 .PARAMETER Session
     The project or article slug written into every ledger line. It is what groups
@@ -53,6 +61,11 @@
     NDL only, and only when ndl is among -Servers. Date you registered with the
     National Diet Library, YYYY-MM-DD. Recorded to NDL-API-NOTIFICATION.txt.
 
+.PARAMETER ConfigPath
+    The claude_desktop_config.json to read and write. Defaults to Claude Desktop's own
+    (%APPDATA%\Claude\claude_desktop_config.json); pass another path to install for a
+    different client, or to test without touching the live file.
+
 .PARAMETER PythonVersion
     Python launcher tag used only if no shared venv is found. Defaults to '3.13'.
 
@@ -60,7 +73,7 @@
     .\install.ps1                                    # just this repository's server
     .\install.ps1 -All                               # the whole family
     .\install.ps1 -Servers ndl,korea_scholarship -NotificationFiled 2026-08-19
-    .\install.ps1 -ReceiptsDir "D:\research\receipts" -Session rhs-transactions-2026
+    .\install.ps1 -VenvDir "D:\mcp\.venv" -ReceiptsDir "D:\mcp\receipts" -Session my-article-2026
 #>
 
 [CmdletBinding()]
@@ -68,23 +81,36 @@ param(
     [ValidateSet("cinii","jstage","ndl","korea_scholarship","openalex","semantic_scholar")]
     [string[]]$Servers,
     [switch]$All,
+    [string]$VenvDir,
     [string]$ReceiptsDir,
     [string]$Session,
     [switch]$NoReceipts,
     [string]$NotificationFiled,
-    [string]$PythonVersion = "3.13"
+    [string]$PythonVersion = "3.13",
+    [string]$ConfigPath
 )
 
 $ErrorActionPreference = "Stop"
 
 $ScriptRoot   = $PSScriptRoot
-$ServersRoot  = Join-Path $env:APPDATA "Claude\mcp-servers"
-$SharedPython = Join-Path $ServersRoot ".venv\Scripts\python.exe"
-$ConfigPath   = Join-Path $env:APPDATA "Claude\claude_desktop_config.json"
+$DefaultVenv  = Join-Path $env:APPDATA "Claude\mcp-servers\.venv"   # offered, never assumed
+if (-not $ConfigPath) { $ConfigPath = Join-Path $env:APPDATA "Claude\claude_desktop_config.json" }
 $DefaultDir   = Join-Path $env:APPDATA "Claude\mcp-receipts"
 $FormUrl      = "https://form2.ndl.go.jp/form/pub/ndl07/api"
 $TermsUrl     = "https://ndlsearch.ndl.go.jp/help/api"
 $Interactive  = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+
+# Without a console nothing can be asked, so every location must be given up
+# front. Checked here, before anything is created, so that "nothing was
+# installed" is true when it is said.
+if (-not $Interactive) {
+    if (-not $VenvDir) {
+        throw "Not running in a console, so nothing can be asked, and no -VenvDir was given.`nSay where to install: -VenvDir <folder> (for example -VenvDir `"$DefaultVenv`").`nNothing was installed."
+    }
+    if (-not $ReceiptsDir -and -not $NoReceipts) {
+        throw "Not running in a console, so nothing can be asked, and no receipts folder was given.`nPass -ReceiptsDir <folder> (for example -ReceiptsDir `"$DefaultDir`"), or -NoReceipts to register without one.`nNothing was installed."
+    }
+}
 
 $CATALOGUE = [ordered]@{
     cinii             = @{ dist = "cinii-mcp";             pkg = "cinii_mcp";             cmd = "cinii-mcp";             creds = @("CINII_APPID") }
@@ -193,8 +219,7 @@ if ($NoReceipts) {
             $answer = Read-Host "  Receipts folder [$suggested]"
             $chosenDir = if ([string]::IsNullOrWhiteSpace($answer)) { $suggested } else { $answer.Trim('"').Trim() }
         } else {
-            $chosenDir = $suggested
-            Write-Host "    Not interactive; using $chosenDir"
+            throw "Not running in a console, so nothing can be asked, and no receipts folder was given.`nPass -ReceiptsDir <folder> (for example -ReceiptsDir `"$suggested`"), or -NoReceipts to register without one.`nNothing was installed."
         }
     }
     $chosenDir = [System.IO.Path]::GetFullPath($chosenDir)
@@ -226,18 +251,30 @@ if ($NoReceipts) {
 
 Write-Step "Resolving Python"
 
-if (Test-Path $SharedPython) {
-    $Python = $SharedPython
-    Write-Host "    Using the shared mcp-servers venv."
+# Where to install is the user's to choose. Asked for, never assumed: a script
+# that silently picks a location on a stranger's machine is writing the
+# author's habits into it.
+if ($VenvDir) {
+    $VenvDir = [System.IO.Path]::GetFullPath($VenvDir)
+} elseif ($Interactive) {
+    Write-Host ""
+    Write-Host "  The servers install into one virtual environment of their own, and"
+    Write-Host "  Claude Desktop is pointed at the console scripts inside it."
+    Write-Host ""
+    $answer  = Read-Host "  Install into [$DefaultVenv]"
+    $VenvDir = if ([string]::IsNullOrWhiteSpace($answer)) { $DefaultVenv } else { [System.IO.Path]::GetFullPath($answer.Trim('"').Trim()) }
 } else {
-    $VenvDir = Join-Path $ServersRoot ".venv"
-    $Python  = Join-Path $VenvDir "Scripts\python.exe"
-    if (-not (Test-Path $Python)) {
-        if (-not (Test-Path $ServersRoot)) { New-Item -ItemType Directory -Path $ServersRoot -Force | Out-Null }
-        & py "-$PythonVersion" -m venv $VenvDir
-        if ($LASTEXITCODE -ne 0) { throw "py -$PythonVersion failed. Install Python $PythonVersion or pass -PythonVersion." }
-    }
-    Write-Host "    Created the shared venv at $VenvDir."
+    throw "Not running in a console, so nothing can be asked, and no -VenvDir was given.`nSay where to install: -VenvDir <folder> (for example -VenvDir `"$DefaultVenv`").`nNothing was installed."
+}
+$Python = Join-Path $VenvDir "Scripts\python.exe"
+if (Test-Path $Python) {
+    Write-Host "    Using the venv at $VenvDir."
+} else {
+    $parent = Split-Path $VenvDir -Parent
+    if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    & py "-$PythonVersion" -m venv $VenvDir
+    if ($LASTEXITCODE -ne 0) { throw "py -$PythonVersion failed. Install Python $PythonVersion or pass -PythonVersion." }
+    Write-Host "    Created the venv at $VenvDir."
 }
 $ScriptsDir = Split-Path $Python -Parent
 
@@ -507,7 +544,10 @@ $newConfig["mcpServers"] = $serversHash
 
 $configDir = Split-Path $ConfigPath -Parent
 if (-not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir | Out-Null }
-($newConfig | ConvertTo-Json -Depth 10) | Out-File -FilePath $ConfigPath -Encoding utf8
+# UTF-8 without a byte-order mark: Windows PowerShell's `-Encoding utf8` writes
+# one, and a strict JSON reader (any client other than the one that happens to
+# tolerate it) refuses the file.
+[System.IO.File]::WriteAllText($ConfigPath, ($newConfig | ConvertTo-Json -Depth 10) + "`n", (New-Object System.Text.UTF8Encoding($false)))
 
 # -- 8. Summary ---------------------------------------------------------------
 

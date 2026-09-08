@@ -11,8 +11,19 @@ only, Python 3.10+, works on Windows, macOS and Linux.
     python install.py                                   # this repo's server
     python install.py --all                              # the whole family
     python install.py --servers cinii,ndl
+    python install.py --venv ~/mcp/.venv --receipts-dir ~/mcp/receipts --session my-article
     python install.py --dry-run --all
     python install.py --print-config
+
+Nothing about where things go is decided for you. Run from a terminal, the
+script asks where to install (the virtual environment Claude Desktop will be
+pointed at), which folder receives the receipts, and which session slug to
+stamp on them, offering a neutral suggestion for each that Enter accepts. Run
+without a terminal it does not guess: pass --venv and --receipts-dir (or
+--no-receipts) or it stops before touching anything. The suggestions are
+platform conventions beside Claude Desktop's own configuration directory, or
+whatever the servers already registered on this machine use; no path or name
+of the author's is in this file.
 
 See README.md ("Installing more than this one") and install.ps1 in any of
 the six repos for the behaviour this reproduces. Differences from install.ps1
@@ -133,7 +144,9 @@ def config_path() -> Path:
 
 
 def default_venv_dir() -> Path:
-    """Where the shared venv lives if --venv is not given.
+    """The install location offered when --venv is not given. Offered, not
+    used: an interactive run asks, a non-interactive run stops (see
+    resolve_venv).
 
     install.ps1 uses %APPDATA%\\Claude\\mcp-servers\\.venv on Windows, i.e. a
     "mcp-servers" folder next to Claude Desktop's own config directory. We
@@ -328,13 +341,43 @@ def resolve_servers(args: argparse.Namespace, script_dir: Path) -> list[str]:
     return [self_name]
 
 
+def is_read_only(args: argparse.Namespace) -> bool:
+    """--dry-run and --print-config touch nothing, so they may show a
+    suggestion where a real run would ask or stop."""
+    return bool(args.dry_run or args.print_config)
+
+
 def is_interactive(args: argparse.Namespace) -> bool:
-    if args.dry_run or args.print_config:
+    if is_read_only(args):
         # DEVIATION: install.ps1 prompts even under no special flag equivalent
         # to --dry-run (it has none). Both of our read-only modes are defined
         # as "touching nothing", so we never block on input() there.
         return False
     return sys.stdin is not None and sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def resolve_venv(args: argparse.Namespace, interactive: bool) -> Path:
+    """Where to install. Asked for, never assumed: the location is the user's
+    to choose, and a script that silently picks one on a stranger's machine
+    is writing the author's habits into it."""
+    if args.venv:
+        return Path(args.venv).expanduser().resolve()
+    suggested = default_venv_dir()
+    if interactive:
+        print()
+        print("  The servers install into one virtual environment of their own, and")
+        print("  Claude Desktop is pointed at the console scripts inside it.")
+        print()
+        answer = input(f"  Install into [{suggested}]: ").strip().strip('"')
+        return Path(answer or str(suggested)).expanduser().resolve()
+    if is_read_only(args):
+        print(f"    Would ask where to install; showing {suggested}")
+        return suggested
+    raise InstallError(
+        "Not running in a terminal, so nothing can be asked, and no --venv was given.\n"
+        f"Say where to install: --venv <folder>  (for example --venv \"{suggested}\").\n"
+        "Nothing was installed."
+    )
 
 
 def resolve_receipts(
@@ -377,9 +420,15 @@ def resolve_receipts(
             print()
             answer = input(f"  Receipts folder [{suggested}]: ").strip()
             chosen_dir = answer.strip('"') if answer else suggested
-        else:
+        elif is_read_only(args):
             chosen_dir = suggested
-            print(f"    Not interactive; using {chosen_dir}")
+            print(f"    Would ask for the receipts folder; showing {chosen_dir}")
+        else:
+            raise InstallError(
+                "Not running in a terminal, so nothing can be asked, and no receipts folder was given.\n"
+                f"Pass --receipts-dir <folder> (for example --receipts-dir \"{suggested}\"), or "
+                "--no-receipts to register without one.\nNothing was installed."
+            )
 
     chosen_dir_path = Path(chosen_dir).expanduser().resolve()
 
@@ -411,7 +460,8 @@ def plan(args: argparse.Namespace, script_dir: Optional[Path] = None) -> Plan:
     servers = resolve_servers(args, script_dir)
     self_name = detect_self(script_dir)
 
-    venv_dir = Path(args.venv).expanduser().resolve() if args.venv else default_venv_dir()
+    interactive = is_interactive(args)
+    venv_dir = resolve_venv(args, interactive)
     python_exe = python_exe_in(venv_dir)
 
     cfg_path = Path(args.config_path).expanduser().resolve() if getattr(args, "config_path", None) else config_path()
@@ -419,7 +469,6 @@ def plan(args: argparse.Namespace, script_dir: Optional[Path] = None) -> Plan:
     existing = dict(config.get("mcpServers") or {})
     known_dirs, known_sessions, legacy_logs = gather_known(existing)
 
-    interactive = is_interactive(args)
     chosen_dir, chosen_session = resolve_receipts(args, known_dirs, known_sessions, interactive)
 
     sources = {
@@ -568,7 +617,7 @@ def ensure_venv(venv_dir: Path, python_version: str, dry_run: bool) -> Path:
             f"python -m venv failed for {venv_dir}. Install Python {python_version} "
             "or pass --venv to point at an existing environment."
         )
-    print(f"    Created the shared venv at {venv_dir}.")
+    print(f"    Created the venv at {venv_dir}.")
     return python_exe
 
 
@@ -897,8 +946,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--servers", help="Comma-separated short names, e.g. cinii,ndl.")
     p.add_argument("--all", action="store_true", help="Install all six servers.")
     p.add_argument("--tag", help="Install from GitHub at this tag (e.g. v3.0.0) when no sibling checkout exists; default is main.")
-    p.add_argument("--venv", help="Venv directory to install into (default: the family's shared venv).")
-    p.add_argument("--receipts-dir", dest="receipts_dir", help="Receipts folder (MCP_RECEIPT_DIR).")
+    p.add_argument("--venv", help="Where to install (a venv is created there if none exists). Asked for if omitted; required when not run from a terminal.")
+    p.add_argument("--receipts-dir", dest="receipts_dir", help="Receipts folder (MCP_RECEIPT_DIR). Asked for if omitted; required (or --no-receipts) when not run from a terminal.")
     p.add_argument("--force-receipts-dir", action="store_true",
                    help="allow --receipts-dir to differ from the folder already-registered servers use")
     p.add_argument("--session", help="Session/project slug (MCP_RECEIPT_SESSION).")

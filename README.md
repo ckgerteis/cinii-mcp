@@ -1,5 +1,7 @@
 # cinii-mcp
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20999896.svg)](https://doi.org/10.5281/zenodo.20999896)
+
 A FastMCP stdio server exposing the [CiNii Research API](https://support.nii.ac.jp/en/cinii/api/api_outline) — Japan's national academic database, operated by the National Institute of Informatics (NII) — as seven tools for use with Claude Desktop and other MCP clients.
 
 CiNii Research aggregates metadata from KAKEN, CiNii Articles, CiNii Books, IRDB, Crossref, DataCite, PubMed, and NDL Search. There is no established open MCP tooling for it, so this server fills that gap for researchers querying Japanese-language scholarship.
@@ -11,6 +13,39 @@ CiNii Research indexes Japanese scholarship across five kinds of record, and thi
 KAKEN repays separate attention — it records what was *funded*, so it surfaces projects underway, collaborations forming, and research that reached a grant report before it reached print.
 
 Every result carries the term sent, its script, how CiNii matched it, and a receipt fixing the query, so a search standing behind a footnote can be named, cited, and run again by someone else.
+
+## What the receipts are for
+
+A search you cannot re-run is a claim you cannot check. When a footnote rests on a database
+query, say that no article in this index uses a term before a certain year, the reader is asked to
+take the search on trust: which term, in which script, on what date, against which index and which
+version of it, and how far down the results the author went. Ordinary searching leaves none of
+that behind. This server leaves all of it. Every
+query-answering tool returns its envelope through the ledger, which appends one line to an
+append-only file: the term actually sent and its script, how the source matched it, how many
+records existed and how many came back, the diagnostics, the tool and its parameters, the server
+version, a timestamp, and the hash of the previous line. The hash makes the file a chain: a line
+cannot be altered, removed or reordered afterwards without the verifier saying so.
+
+What that gives a researcher:
+
+- **A citable search.** Name the receipt in the footnote (session slug, server, date, line hash)
+  and a reader can see exactly what was asked and run it again against the same version.
+- **Negative findings that carry weight.** "Not found" is evidence only if the search that
+  produced it is on record, with its term, its script and its breadth.
+- **A method section that writes itself.** `cinii-mcp-ledger` `manifest <folder>` summarises every
+  query a project made, by server, script and session: the disclosure a journal, a
+  data-availability statement or a research-integrity review asks for.
+- **A record of AI-mediated research.** When a model chose the term, the receipt shows the term
+  it chose and what came back, which is the thing to disclose about work done with an assistant.
+- **Nothing interpreted.** The receipt is the source's own answer with credentials removed. The
+  server does not summarise, rank or paraphrase, so the record is of the source, not of the tool.
+
+Receipts are off until you name a folder (`MCP_RECEIPT_DIR`); each server then writes its own
+`<server>.jsonl` inside it, and `MCP_RECEIPT_SESSION` stamps a project or article slug on every
+line so one folder can serve several projects. `cinii-mcp-ledger` `verify-dir <folder>` checks the chains.
+The mechanics, the variables and what the envelope says when nothing is deposited are in the
+receipts section below.
 
 ## Tools
 
@@ -114,16 +149,38 @@ The same application ID also works for the KAKEN API, which `cinii_search_kaken`
 
 Three routes. All three give you the same server; pick by how much you want to see of it.
 
+**Python.** The pip and source routes need Python 3.10 or later; 3.10, 3.12, 3.13 and 3.14 are tested in CI on Windows, macOS and Linux. The Claude Desktop bundle needs none, because uv provisions its own.
+
+### Getting Python
+
+The Claude Desktop bundle needs no Python of your own. The other routes need Python 3.10 to 3.14
+and its `venv` module, which the official installers include.
+
+- **Windows.** Download the 64-bit installer from [python.org/downloads](https://www.python.org/downloads/)
+  and run it; tick "Add python.exe to PATH" on the first screen. Afterwards `py --version` (the
+  launcher the installer adds) or `python --version` in a new terminal should print 3.1x. If typing
+  `python` opens the Microsoft Store instead, Windows has no Python yet: that Store page is a stub,
+  and it is also what "'python' is not recognized" usually means.
+- **macOS.** The [python.org installer](https://www.python.org/downloads/macos/), or
+  `brew install python@3.13` with [Homebrew](https://brew.sh). The `/usr/bin/python3` that Xcode's
+  command-line tools provide may be older than 3.10; `python3 --version` says.
+- **Linux.** Your distribution's package: `sudo apt install python3 python3-venv` on Debian and
+  Ubuntu, `sudo dnf install python3` on Fedora. Or let uv provide one (next line).
+- **Any platform, with uv.** [uv](https://docs.astral.sh/uv/getting-started/installation/)
+  installs Python itself: `uv python install 3.13`, then `uv venv` or the `uvx` route below.
+
 ### One click: the Claude Desktop bundle
 
-Download the `.mcpb` for your platform (Windows x64, Apple Silicon, Linux x64; Intel Macs use the pip route below) from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain. The bundle carries every library it needs, but not Python itself: a Python 3.10+ interpreter must be on the machine (`python` on Windows, `python3` on macOS and Linux).
+Download `cinii-mcp-3.1.0.mcpb` from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. One bundle serves Windows, macOS (Apple Silicon and Intel) and Linux. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain.
+
+The bundle carries the server's source and a lock file, nothing compiled, and needs no Python of its own: Claude Desktop runs it with [uv](https://docs.astral.sh/uv/), using a uv already on your PATH if there is one and otherwise the copy the app ships. On first launch uv provisions Python 3.13 (if the machine has none) and installs the locked libraries, a download of roughly 60 MB that took 26 to 46 seconds on the author's connection; later launches take under a second. If the first launch is slow enough that Claude Desktop reports the server disconnected, restart the app: what uv already fetched is cached, and the second launch completes. Bundles before 3.1.0 vendored libraries compiled for CPython 3.12 only and failed on every other interpreter; see [Troubleshooting](#troubleshooting).
 
 ### From GitHub, pinned to a release
 
 ```bash
-pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.0.1"
+pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.1.0"
 # or, without an environment of your own:
-uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.0.1" cinii-mcp
+uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.1.0" cinii-mcp
 ```
 
 installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the thing to cite; `@main` gets whatever is current. Then register it in Claude Desktop (below), or let `install.py` do that.
@@ -131,7 +188,7 @@ installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the t
 ### The whole family
 
 ```bash
-pip install "git+https://github.com/ckgerteis/bibliograph-mcp@v1.0.0" && bibliograph install
+pip install "git+https://github.com/ckgerteis/bibliograph-mcp@v1.0.1" && bibliograph install
 ```
 
 installs all six servers and registers them together — one receipts folder, credentials asked for once. See [bibliograph-mcp](https://github.com/ckgerteis/bibliograph-mcp). From a checkout of this repository, `python install.py` does the same for this server alone, `python install.py --all` for the six, on Windows, macOS and Linux; `install.ps1` remains for Windows.
@@ -184,13 +241,69 @@ cloning one repository is not a request for five more.
 .\install.ps1 -Servers cinii,ndl           # a chosen subset
 ```
 
-Whatever subset you name is registered against one receipts folder, asked for
+Nothing about where things go is decided for you. The script asks where to
+install (the virtual environment Claude Desktop will be pointed at), which
+folder receives the receipts, and which session slug to stamp on them,
+offering a neutral suggestion for each that Enter accepts; run without a
+terminal it does not guess, and stops unless `--venv` and `--receipts-dir`
+(or `--no-receipts`; `-VenvDir` and `-ReceiptsDir` for `install.ps1`) say
+so. Whatever subset you name is registered against one receipts folder, asked for
 once. The script prefers a sibling checkout to the network, carries across
 credentials already registered rather than asking again, leaves servers it was
 not asked about alone, and stops rather than guessing where the servers already
 registered disagree about the folder or the session slug. It also asserts that
 `ledger.py` and `mediation.py` are byte-identical across everything it
 installed, so two envelope versions cannot end up in one environment unnoticed.
+
+### Any other MCP client
+
+Nothing here is specific to Claude. The server speaks the Model Context Protocol over stdio and
+nothing else: any client that can start a process and talk JSON-RPC to it (Claude Code, Cursor,
+VS Code and Continue, Zed, LibreChat, a script of your own using an MCP SDK) can use it. The
+Claude Desktop bundle and the installers are conveniences for one client; the server underneath is
+the same console script. Register it anywhere by giving the client the absolute path of the
+console script and, optionally, the environment:
+
+```json
+{
+  "mcpServers": {
+    "cinii": {
+      "command": "/absolute/path/to/.venv/bin/cinii-mcp",
+      "env": {
+        "CINII_APPID": "your application ID",
+        "MCP_RECEIPT_DIR": "/absolute/path/to/receipts",
+        "MCP_RECEIPT_SESSION": "project-or-article-slug"
+      }
+    }
+  }
+}
+```
+
+Claude Code takes the same thing on the command line:
+
+```bash
+claude mcp add cinii -- /absolute/path/to/.venv/bin/cinii-mcp
+```
+
+On Windows the path ends in `\.venv\Scripts\cinii-mcp.exe`. `MCP_RECEIPT_DIR` and `MCP_RECEIPT_SESSION`
+are optional; without them the server runs and every envelope says `RECEIPT_NOT_DEPOSITED`. The
+stdio transport is the only one: there is no HTTP endpoint to expose, and nothing to host.
+
+## Troubleshooting
+
+**"Server disconnected"** is all Claude Desktop says when the server process exited before or during the handshake, whatever the reason. The reason is in the log:
+
+- Windows: `%APPDATA%\Claude\logs\mcp-server-<name>.log` (the extension's display name, or the key under `mcpServers`), with `mcp.log` beside it for the app's side of the conversation.
+- macOS: `~/Library/Logs/Claude/mcp-server-<name>.log` and `mcp.log`.
+- Linux: `~/.config/Claude/logs/`.
+
+Read the last launch from the bottom up. Three shapes account for nearly every report:
+
+- **A Python traceback ending in `ImportError` or `ModuleNotFoundError`** (for example `No module named 'pydantic_core._pydantic_core'`). The interpreter started, the code was found, and a compiled library did not match that interpreter. This is what every bundle before 3.1.0 did on any Python other than 3.12. Install the current bundle, or use the pip route, which resolves wheels for the interpreter you install into.
+- **`'python' is not recognized`, `spawn python ENOENT`, or a line from the Microsoft Store**: no interpreter was found on the PATH Claude Desktop constructs. Nothing of this server ran. The current bundle does not launch `python` at all; for the pip route, register the console script by absolute path as shown above.
+- **A line from uv** (`error: ...`, or a download that never finished): the current bundle's runtime could not build its environment, usually because the first launch had no network or ran past Claude Desktop's sixty-second limit. Restart the app; uv keeps what it fetched. A uv older than 0.5 cannot read the lock file; upgrade it or remove it so the app uses its own.
+
+The bundle's own entry point writes one line naming the interpreter, its path and the supported range before re-raising an import failure, so a log from 3.1.0 onwards says which of these it is.
 
 ## Configuration
 

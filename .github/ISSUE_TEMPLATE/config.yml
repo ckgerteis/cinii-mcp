@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/ckgerteis/cinii-mcp/security/advisories/new
+    about: A credential leak, a receipt that verifies when it should not, or a path from someone's machine in the repository. Not the public tracker.
+  - name: The suite
+    url: https://github.com/ckgerteis/bibliograph-mcp
+    about: Questions about installing or registering several of the family's servers together.
