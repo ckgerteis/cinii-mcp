@@ -9,3 +9,6 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 3
+    # Floors like >=1.2.0 are deliberate; only propose a change when the
+    # existing range excludes a new release. Security updates are unaffected.
+    versioning-strategy: increase-if-necessary
