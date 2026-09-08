@@ -5,9 +5,9 @@ Claude Desktop runs this file with uv from the folder it sits in:
 
     uv --directory <bundle>/server run --frozen <bundle>/server/main.py
 
-uv reads pyproject.toml, .python-version and uv.lock beside this file,
-provisions the pinned interpreter if the machine lacks one, installs the
-locked dependencies into <bundle>/server/.venv, and starts the same stdio
+uv reads pyproject.toml and uv.lock beside this file, uses a Python already
+on the machine that satisfies requires-python (downloading one only if there
+is none), installs the locked dependencies into <bundle>/server/.venv, and starts the same stdio
 server the console script starts. The first launch downloads; later ones do
 not.
 """

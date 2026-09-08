@@ -42,7 +42,7 @@ reports the envelope's diagnostic codes.
 
 `python mcpb/build.py` writes `dist/cinii-mcp-<version>.mcpb`. The bundle vendors nothing: its manifest
 declares `server.type: "uv"`, and Claude Desktop runs it with uv from the `pyproject.toml`,
-`.python-version` and `uv.lock` inside. Two checks gate it, and both must pass before a change to
+`uv.lock` inside. Two checks gate it, and both must pass before a change to
 `mcpb/` is merged:
 
 ```bash

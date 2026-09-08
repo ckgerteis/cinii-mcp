@@ -7,6 +7,17 @@ the text and, where a version DOI exists, cited by it.
 Releases earlier than those below are on the repository's releases page; this
 file begins where the record is precise enough to be worth writing down.
 
+## 3.1.1 — 2026-09-08
+
+- **The bundle no longer pins Python 3.13.** 3.1.0 shipped a `.python-version`
+  so that every user ran the interpreter the release gate had run; the cost
+  was a 20 MB interpreter download on first launch even where a usable Python
+  was already installed. The file is gone: uv now takes any interpreter on
+  the machine that satisfies `requires-python` (3.10 or later) and downloads
+  one only where there is none. The lock resolves for every version in that
+  range, and the handshake gate runs the bundle under 3.10 and 3.12 as well
+  as on a cold cache before each release. Nothing in the server changed.
+
 ## 3.1.0 — 2026-09-08
 
 **The Claude Desktop bundle runs again, on every supported interpreter.** The

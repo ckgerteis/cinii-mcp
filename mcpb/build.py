@@ -8,9 +8,10 @@
 The bundle vendors no libraries. Its manifest declares server.type "uv"
 (manifest 0.4), so Claude Desktop runs it with uv: a uv already on the PATH if
 there is one, otherwise the uv the app ships and, failing that, one it
-downloads. uv reads server/pyproject.toml, server/.python-version and
-server/uv.lock, provisions the pinned interpreter where the machine has none,
-and installs the locked dependencies on first launch. One bundle serves every
+downloads. uv reads server/pyproject.toml and server/uv.lock, uses an
+interpreter already on the machine that satisfies requires-python, downloads
+one only where there is none, and installs the locked dependencies on first
+launch. One bundle serves every
 platform, because nothing in it is compiled.
 
 Why this replaced the vendored-lib bundle: `pip install --target` vendors
@@ -61,10 +62,11 @@ def _load_project(text: str) -> dict:
     return proj
 
 ROOT = Path(__file__).resolve().parent.parent
-# The interpreter uv provisions for the bundle. One version, so that what the
-# release gate ran is what the user runs; the lock itself resolves for every
-# interpreter pyproject allows, and the gate proves that too.
-PYTHON_PIN = "3.13"
+# No .python-version in the bundle. uv then takes any installed interpreter
+# that satisfies pyproject's requires-python and downloads one only when none
+# exists, so most first launches skip the interpreter download. The lock
+# resolves for every version the range allows, and tests/bundle_handshake.py
+# proves the bundle under several of them before each release.
 # Files that must be byte-identical across the family. Paths relative to the
 # repo root; the package-relative ones are resolved through pyproject.
 VENDORED = [
@@ -193,7 +195,6 @@ def build(uv_exe: str | None) -> Path:
     for f in ("pyproject.toml", "README.md", "LICENSE"):
         shutil.copy(ROOT / f, server / f)
     shutil.copy(ROOT / "mcpb" / "main.py", server / "main.py")
-    (server / ".python-version").write_text(PYTHON_PIN + "\n", encoding="utf-8")
     subprocess.run([_uv(uv_exe), "lock", "--directory", str(server)], check=True)
     if not (server / "uv.lock").exists():
         sys.exit("uv lock wrote no uv.lock")
@@ -211,7 +212,7 @@ def build(uv_exe: str | None) -> Path:
             if p.is_file() and "__pycache__" not in p.parts and ".venv" not in p.parts:
                 z.write(p, p.relative_to(out).as_posix())
     size = bundle.stat().st_size // 1024
-    print(f"built {bundle.relative_to(ROOT)} ({size} KB): server.type=uv, python pin {PYTHON_PIN}, "
+    print(f"built {bundle.relative_to(ROOT)} ({size} KB): server.type=uv, python: any that satisfies requires-python, "
           f"platforms {', '.join(template['compatibility']['platforms'])}")
     return bundle
 

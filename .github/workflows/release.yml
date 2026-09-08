@@ -107,6 +107,7 @@ jobs:
         run: |
           python tests/bundle_handshake.py dist/*.mcpb --python 3.10
           python tests/bundle_handshake.py dist/*.mcpb --python 3.12
+          python tests/bundle_handshake.py dist/*.mcpb --python 3.14
 
   release:
     needs: [build, bundle-check]

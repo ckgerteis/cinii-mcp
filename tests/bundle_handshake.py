@@ -84,9 +84,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("bundle")
     ap.add_argument("--uv", help="uv executable (default: UV env var, then PATH)")
-    ap.add_argument("--python", help="interpreter request for uv, overriding the bundle's .python-version")
+    ap.add_argument("--python", help="interpreter request for uv, instead of the one uv would pick from the machine")
     ap.add_argument("--cold", action="store_true",
-                    help="empty UV_CACHE_DIR and UV_PYTHON_INSTALL_DIR, managed interpreters only: the first launch")
+                    help="empty UV_CACHE_DIR and UV_PYTHON_INSTALL_DIR, managed interpreters only: the first launch on a machine with no usable Python")
     ap.add_argument("--timeout", type=float, default=240.0)
     a = ap.parse_args()
 

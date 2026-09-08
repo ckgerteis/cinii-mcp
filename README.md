@@ -149,12 +149,13 @@ The same application ID also works for the KAKEN API, which `cinii_search_kaken`
 
 Three routes. All three give you the same server; pick by how much you want to see of it.
 
-**Python.** The pip and source routes need Python 3.10 or later; 3.10, 3.12, 3.13 and 3.14 are tested in CI on Windows, macOS and Linux. The Claude Desktop bundle needs none, because uv provisions its own.
+**Python.** The pip and source routes need Python 3.10 or later; 3.10, 3.12, 3.13 and 3.14 are tested in CI on Windows, macOS and Linux. The Claude Desktop bundle uses whichever of these is already installed, and has uv download one only if none is.
 
 ### Getting Python
 
-The Claude Desktop bundle needs no Python of your own. The other routes need Python 3.10 to 3.14
-and its `venv` module, which the official installers include.
+Every route needs Python 3.10 to 3.14. The Claude Desktop bundle uses one already on the machine
+and has uv download one only if none is; the other routes also need the `venv` module, which the
+official installers include.
 
 - **Windows.** Download the 64-bit installer from [python.org/downloads](https://www.python.org/downloads/)
   and run it; tick "Add python.exe to PATH" on the first screen. Afterwards `py --version` (the
@@ -171,16 +172,16 @@ and its `venv` module, which the official installers include.
 
 ### One click: the Claude Desktop bundle
 
-Download `cinii-mcp-3.1.0.mcpb` from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. One bundle serves Windows, macOS (Apple Silicon and Intel) and Linux. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain.
+Download `cinii-mcp-3.1.1.mcpb` from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. One bundle serves Windows, macOS (Apple Silicon and Intel) and Linux. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain.
 
-The bundle carries the server's source and a lock file, nothing compiled, and needs no Python of its own: Claude Desktop runs it with [uv](https://docs.astral.sh/uv/), using a uv already on your PATH if there is one and otherwise the copy the app ships. On first launch uv provisions Python 3.13 (if the machine has none) and installs the locked libraries, a download of roughly 60 MB that took 26 to 46 seconds on the author's connection; later launches take under a second. If the first launch is slow enough that Claude Desktop reports the server disconnected, restart the app: what uv already fetched is cached, and the second launch completes. Bundles before 3.1.0 vendored libraries compiled for CPython 3.12 only and failed on every other interpreter; see [Troubleshooting](#troubleshooting).
+The bundle carries the server's source and a lock file, nothing compiled, and needs no Python of its own: Claude Desktop runs it with [uv](https://docs.astral.sh/uv/), using a uv already on your PATH if there is one and otherwise the copy the app ships. On first launch uv uses a Python 3.10 or later already on the machine, downloading one only if there is none, and installs the locked libraries: roughly 40 MB, or 60 MB with an interpreter, which took 26 to 46 seconds on the author's connection; later launches take under a second. If the first launch is slow enough that Claude Desktop reports the server disconnected, restart the app: what uv already fetched is cached, and the second launch completes. Bundles before 3.1.0 vendored libraries compiled for CPython 3.12 only and failed on every other interpreter; see [Troubleshooting](#troubleshooting).
 
 ### From GitHub, pinned to a release
 
 ```bash
-pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.1.0"
+pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.1.1"
 # or, without an environment of your own:
-uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.1.0" cinii-mcp
+uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.1.1" cinii-mcp
 ```
 
 installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the thing to cite; `@main` gets whatever is current. Then register it in Claude Desktop (below), or let `install.py` do that.
