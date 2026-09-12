@@ -41,9 +41,11 @@ reports the envelope's diagnostic codes.
 ### The Claude Desktop bundle
 
 `python mcpb/build.py` writes `dist/cinii-mcp-<version>.mcpb`. The bundle vendors nothing: its manifest
-declares `server.type: "uv"`, and Claude Desktop runs it with uv from the `pyproject.toml`,
-`uv.lock` inside. Two checks gate it, and both must pass before a change to
-`mcpb/` is merged:
+declares `server.type: "uv"`, and `pyproject.toml`, `uv.lock` and the entry point `main.py` sit at the
+bundle root, where Claude Desktop's UV runtime looks. The app runs `uv sync` there when the extension is
+installed and reuses that environment at every launch; a `pyproject.toml` anywhere else makes the app skip
+the install step and download everything inside the launch timeout, which is the fault 3.1.2 repaired.
+Two checks gate the bundle, and both must pass before a change to `mcpb/` is merged:
 
 ```bash
 npx --yes @anthropic-ai/mcpb validate build/bundle/manifest.json
@@ -51,9 +53,11 @@ python tests/bundle_handshake.py dist/*.mcpb --cold
 python tests/bundle_handshake.py dist/*.mcpb --python 3.10
 ```
 
-`mcpb validate` checks the manifest. The handshake gate unpacks the bundle, runs it the way the host
-would, and requires the `initialize` reply to name the manifest's version, on an empty uv cache and
-under interpreters other than the bundle's pin. A bundle that builds is not a bundle that runs.
+`mcpb validate` checks the manifest. The handshake gate unpacks the bundle, runs the install phase the host
+runs (`uv sync` at the bundle root), then launches it with the manifest's own args and requires the
+`initialize` reply to name the manifest's version within thirty seconds, on an empty uv cache and under
+interpreters other than the one that built it. `--no-setup` skips the install phase and shows what a host
+without it pays at launch. A bundle that builds is not a bundle that runs.
 
 ### Files vendored across the family
 

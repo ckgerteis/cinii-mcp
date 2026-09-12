@@ -6,15 +6,37 @@
     python mcpb/build.py --release-notes v3.0.0       # print that version's CHANGELOG section
 
 The bundle vendors no libraries. Its manifest declares server.type "uv"
-(manifest 0.4), so Claude Desktop runs it with uv: a uv already on the PATH if
-there is one, otherwise the uv the app ships and, failing that, one it
-downloads. uv reads server/pyproject.toml and server/uv.lock, uses an
-interpreter already on the machine that satisfies requires-python, downloads
-one only where there is none, and installs the locked dependencies on first
-launch. One bundle serves every
-platform, because nothing in it is compiled.
+(manifest 0.4), and its layout is the one Claude Desktop's UV runtime expects:
 
-Why this replaced the vendored-lib bundle: `pip install --target` vendors
+    manifest.json
+    pyproject.toml        <- at the root: this is what the host looks for
+    uv.lock
+    main.py               <- the entry point
+    src/<package>/...
+    README.md, LICENSE, CHANGELOG.md, response-schema.json
+
+Claude Desktop does two things with a uv-type bundle, and the layout matters
+for both. At install time it looks for pyproject.toml at the bundle root and,
+if it is there, takes a uv already on the PATH or downloads its own (0.9.7 at
+the time of writing, into the app's uv-runtime folder), then runs `uv sync` in the bundle folder with a progress bar: that is when the
+interpreter and the locked libraries are fetched. If pyproject.toml is not at
+the root, the app logs "missing pyproject.toml. Cannot proceed with UV setup"
+and installs the extension anyway, with nothing provisioned. At launch time
+it runs its own uv with the manifest's args and the bundle folder as the
+working directory.
+
+The bundles before this layout kept pyproject.toml under server/, so the
+install-time step was skipped on every machine and the first connection
+attempt had to download uv, an interpreter and ~40 MB of libraries inside the
+host's connection window: on the author's connection that took 26-46 s
+against a 60 s limit, and on slower or filtered networks it never completed
+("Unable to connect to extension server", reported from a Mac mini on macOS
+26 on 7 September 2026). With pyproject.toml at the root the environment is
+built during installation and the launch reuses it (under a second, measured).
+The manifest's `uv run --frozen` still builds the environment itself where a
+host skipped the install-time step, so an older host is slower, not broken.
+
+Why uv replaced the vendored-lib bundle: `pip install --target` vendors
 native wheels (pydantic-core, rpds-py, cffi) tagged for the interpreter that
 runs the build, and the release workflow pinned that to CPython 3.12 while the
 manifest promised >=3.10 and launched whatever `python` the user's PATH held.
@@ -23,8 +45,9 @@ Every published bundle imported under 3.12 alone and failed silently elsewhere
 coupling instead of multiplying it.
 
 The lock is written at build time by the uv that builds, so the bundle pins
-what CI resolved on the release day; tests/bundle_handshake.py then runs the
-built bundle under interpreters other than the pinned one.
+what CI resolved on the release day; tests/bundle_handshake.py then installs
+and launches the built bundle the way the host does, under interpreters other
+than the one that built it.
 """
 from __future__ import annotations
 
@@ -182,26 +205,26 @@ def build(uv_exe: str | None) -> Path:
         sys.exit(f"manifest.template.json says {template['version']}, pyproject says {version}")
     if template["server"]["type"] != "uv":
         sys.exit('manifest.template.json must declare server.type "uv"; this build vendors nothing')
+    if template["server"]["entry_point"] != "main.py":
+        sys.exit('manifest.template.json must set entry_point "main.py": the entry point sits beside '
+                 "pyproject.toml at the bundle root, where Claude Desktop's UV runtime looks")
 
     out = ROOT / "build" / "bundle"
     if out.exists():
         shutil.rmtree(out)
-    server = out / "server"
-    server.mkdir(parents=True)
+    out.mkdir(parents=True)
 
-    # The project, as uv will see it: sources, metadata, and the files
-    # pyproject refers to. No lib tree, no venv.
-    shutil.copytree(ROOT / "src", server / "src", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    for f in ("pyproject.toml", "README.md", "LICENSE"):
-        shutil.copy(ROOT / f, server / f)
-    shutil.copy(ROOT / "mcpb" / "main.py", server / "main.py")
-    subprocess.run([_uv(uv_exe), "lock", "--directory", str(server)], check=True)
-    if not (server / "uv.lock").exists():
+    # The project, as uv will see it from the bundle root: sources, metadata,
+    # the files pyproject refers to, and the entry point. No lib tree, no venv.
+    shutil.copytree(ROOT / "src", out / "src", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    for f in ("pyproject.toml", "README.md", "LICENSE", "CHANGELOG.md", "response-schema.json"):
+        if (ROOT / f).exists():
+            shutil.copy(ROOT / f, out / f)
+    shutil.copy(ROOT / "mcpb" / "main.py", out / "main.py")
+    subprocess.run([_uv(uv_exe), "lock", "--directory", str(out)], check=True)
+    if not (out / "uv.lock").exists():
         sys.exit("uv lock wrote no uv.lock")
 
-    for extra in ("response-schema.json", "LICENSE", "README.md", "CHANGELOG.md"):
-        if (ROOT / extra).exists():
-            shutil.copy(ROOT / extra, out / extra)
     (out / "manifest.json").write_text(json.dumps(template, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     dist = ROOT / "dist"
@@ -212,8 +235,8 @@ def build(uv_exe: str | None) -> Path:
             if p.is_file() and "__pycache__" not in p.parts and ".venv" not in p.parts:
                 z.write(p, p.relative_to(out).as_posix())
     size = bundle.stat().st_size // 1024
-    print(f"built {bundle.relative_to(ROOT)} ({size} KB): server.type=uv, python: any that satisfies requires-python, "
-          f"platforms {', '.join(template['compatibility']['platforms'])}")
+    print(f"built {bundle.relative_to(ROOT)} ({size} KB): server.type=uv, pyproject.toml at the bundle root, "
+          f"python: any that satisfies requires-python, platforms {', '.join(template['compatibility']['platforms'])}")
     return bundle
 
 

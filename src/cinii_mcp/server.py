@@ -1,5 +1,5 @@
 """
-CiNii Research MCP Server (v3.1.1)
+CiNii Research MCP Server (v3.1.2)
 ==================================
 An MCP server for searching Japan's national academic information database
 (CiNii Research), operated by the National Institute of Informatics (NII).
@@ -32,7 +32,7 @@ except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
 
 from . import mediation as M
 
-__version__ = "3.1.1"
+__version__ = "3.1.2"
 
 
 def _silence_http_logging() -> None:

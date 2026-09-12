@@ -1,23 +1,33 @@
-"""Run a built .mcpb the way Claude Desktop would and require the handshake.
+"""Install and launch a built .mcpb the way Claude Desktop does, and require the handshake.
 
 Vendored byte-identical across the server family; needs only the standard
 library and a uv.
 
     python tests/bundle_handshake.py dist/<name>-<version>.mcpb
     python tests/bundle_handshake.py dist/x.mcpb --cold          # empty uv cache and python
-                                                                 # dir: the first-launch cost
+                                                                 # dir: a machine with nothing
     python tests/bundle_handshake.py dist/x.mcpb --python 3.10   # an interpreter other than
-                                                                 # the bundle's pin
+                                                                 # the one uv would pick
     python tests/bundle_handshake.py dist/x.mcpb --uv PATH       # a particular uv, e.g. the
                                                                  # one Claude Desktop ships
+    python tests/bundle_handshake.py dist/x.mcpb --no-setup      # skip the install phase: what
+                                                                 # a host does when pyproject.toml
+                                                                 # is not at the bundle root
 
-Unpacks the bundle, reads manifest.json, substitutes ${__dirname} in
-server.mcp_config.args exactly as the host does, runs the command with uv,
-sends JSON-RPC initialize and tools/list on stdin, and requires serverInfo to
-name the manifest's version. It also reports which interpreter uv chose and
-requires its major.minor to match --python when one was given. This is the
-gate that would have caught a bundle whose native wheels matched one
-interpreter only: a bundle that builds is not a bundle that runs.
+Claude Desktop handles a uv-type bundle in two phases, and this gate runs
+both. Install: the app looks for pyproject.toml at the bundle root and, if it
+is there, runs `uv sync` in the bundle folder with its own uv; that is where
+the interpreter and the libraries are fetched, behind a progress bar. Launch:
+the app runs its uv with the manifest's args, from the bundle folder, and
+waits a bounded time for `initialize`. A bundle whose pyproject.toml is not at
+the root skips the install phase and pays for everything at launch, which is
+the fault this gate exists to catch: the launch must answer within
+--launch-budget seconds (default 30) after the install phase has run, and the
+gate fails if the root pyproject.toml the install phase needs is missing.
+
+It also reports which interpreter uv chose and requires its major.minor to
+match --python when one was given, and checks that the entry point treats
+unsubstituted ${user_config.KEY} placeholders as unset.
 """
 from __future__ import annotations
 
@@ -46,6 +56,7 @@ def _rpc(cmd: list[str], env: dict, cwd: str, wait: float) -> tuple[dict, str, f
     proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, encoding="utf-8")
     replies: dict = {}
+    first: list[float] = []
 
     def reader():
         for line in proc.stdout:
@@ -56,6 +67,8 @@ def _rpc(cmd: list[str], env: dict, cwd: str, wait: float) -> tuple[dict, str, f
                 except ValueError:
                     continue
                 if msg.get("id") in (1, 2):
+                    if not first:
+                        first.append(time.monotonic() - t0)
                     replies[msg["id"]] = msg
                     if len(replies) == 2:
                         return
@@ -66,7 +79,7 @@ def _rpc(cmd: list[str], env: dict, cwd: str, wait: float) -> tuple[dict, str, f
         proc.stdin.write(json.dumps(m) + "\n")
     proc.stdin.flush()
     th.join(wait)
-    elapsed = time.monotonic() - t0
+    elapsed = first[0] if first else time.monotonic() - t0
     try:
         proc.stdin.close()
     except OSError:
@@ -86,8 +99,12 @@ def main() -> int:
     ap.add_argument("--uv", help="uv executable (default: UV env var, then PATH)")
     ap.add_argument("--python", help="interpreter request for uv, instead of the one uv would pick from the machine")
     ap.add_argument("--cold", action="store_true",
-                    help="empty UV_CACHE_DIR and UV_PYTHON_INSTALL_DIR, managed interpreters only: the first launch on a machine with no usable Python")
-    ap.add_argument("--timeout", type=float, default=240.0)
+                    help="empty UV_CACHE_DIR and UV_PYTHON_INSTALL_DIR, managed interpreters only: a machine with no usable Python")
+    ap.add_argument("--no-setup", action="store_true",
+                    help="skip the install phase (uv sync at the bundle root); the launch then pays for everything")
+    ap.add_argument("--launch-budget", type=float, default=30.0,
+                    help="seconds the launch may take to answer initialize (default 30; the host allows about 60)")
+    ap.add_argument("--timeout", type=float, default=240.0, help="seconds to wait for the launch before giving up")
     a = ap.parse_args()
 
     uv = a.uv or os.environ.get("UV") or shutil.which("uv")
@@ -125,27 +142,52 @@ def main() -> int:
         if a.python:
             env["UV_PYTHON"] = a.python
 
+        ok = True
+        mode = "cold" if a.cold else "warm"
+
+        # Install phase: what the host does when the extension is installed.
+        # It requires pyproject.toml at the bundle root; without it the host
+        # logs "missing pyproject.toml. Cannot proceed with UV setup" and
+        # provisions nothing.
+        if not (work / "pyproject.toml").exists():
+            ok = False
+            print("FAIL: no pyproject.toml at the bundle root; Claude Desktop skips its install-time "
+                  "`uv sync` for this bundle and the first launch must download everything")
+        if a.no_setup:
+            print("install: skipped (--no-setup)")
+        elif ok:
+            t0 = time.monotonic()
+            p = subprocess.run([uv, "sync", "--quiet"], cwd=str(work), env=env,
+                               capture_output=True, text=True, encoding="utf-8")
+            took = time.monotonic() - t0
+            if p.returncode != 0:
+                ok = False
+                print(f"FAIL: install-time `uv sync` failed after {took:.1f}s:")
+                print(p.stderr.strip()[-1500:])
+            else:
+                print(f"install: uv sync completed ({took:.1f}s, {mode})")
+
         cmd = [uv] + args
         print("command:", " ".join(f'"{c}"' if " " in c else c for c in cmd))
         replies, err, elapsed = _rpc(cmd, env, str(work), a.timeout)
         info = replies.get(1, {}).get("result", {}).get("serverInfo", {})
         tools = [t["name"] for t in replies.get(2, {}).get("result", {}).get("tools", [])]
-        mode = "cold" if a.cold else "warm"
-        print(f"initialize: {info.get('name')} {info.get('version')}  tools/list: {len(tools)}  ({elapsed:.1f}s, {mode})")
+        print(f"launch: initialize {info.get('name')} {info.get('version')}  tools/list: {len(tools)}  "
+              f"({elapsed:.1f}s to the first reply)")
 
         # Which interpreter did uv choose for that environment?
-        srv_dir = next((args[i + 1] for i, x in enumerate(args) if x == "--directory"), str(work / "server"))
-        probe = [uv, "--directory", srv_dir, "run", "--frozen", "python", "-c",
+        proj_dir = next((args[i + 1] for i, x in enumerate(args) if x == "--directory"), str(work))
+        probe = [uv, "run", "--directory", proj_dir, "--frozen", "python", "-c",
                  "import sys; print(sys.version.split()[0], sys.executable)"]
         p = subprocess.run(probe, env=env, capture_output=True, text=True, encoding="utf-8")
         interp = p.stdout.strip()
         print("interpreter:", interp or p.stderr.strip()[-300:])
 
         # Does the entry point treat unsubstituted placeholders as unset? Import
-        # main.py (its server start is behind __name__ == "__main__") with the
-        # manifest's env block plus a placeholder credential, then look at what
-        # survived. The handshake alone would not show this: the ledger only
-        # writes on a tool call, and a blank credential only matters on one.
+        # the entry point (its server start is behind __name__ == "__main__")
+        # with the manifest's env block plus a placeholder credential, then look
+        # at what survived. The handshake alone would not show this: the ledger
+        # only writes on a tool call, and a blank credential only matters on one.
         entry = str(work / server["entry_point"])
         probe_code = (
             "import os, importlib.util, sys\n"
@@ -155,13 +197,12 @@ def main() -> int:
             "left = sorted(k for k, v in os.environ.items() if '${user_config.' in v)\n"
             "print('LEFT', left)\n"
         )
-        p2 = subprocess.run([uv, "--directory", srv_dir, "run", "--frozen", "python", "-c", probe_code],
+        p2 = subprocess.run([uv, "run", "--directory", proj_dir, "--frozen", "python", "-c", probe_code],
                             env=env, capture_output=True, text=True, encoding="utf-8")
         left_line = next((ln for ln in p2.stdout.splitlines() if ln.startswith("LEFT ")), None)
         placeholders_ok = left_line == "LEFT []"
         print("placeholders:", "stripped" if placeholders_ok else (left_line or p2.stderr.strip()[-300:]))
 
-        ok = True
         stray = [p for p in work.rglob("*") if "${user_config" in p.name]
         if stray:
             ok = False
@@ -179,6 +220,10 @@ def main() -> int:
         elif info.get("version") != want:
             ok = False
             print(f"FAIL: server answered version {info.get('version')!r}, manifest says {want!r}")
+        elif elapsed > a.launch_budget:
+            ok = False
+            print(f"FAIL: the launch took {elapsed:.1f}s to answer initialize, over the {a.launch_budget:.0f}s budget; "
+                  "the host would have given up")
         if not tools:
             ok = False
             print("FAIL: tools/list is empty")

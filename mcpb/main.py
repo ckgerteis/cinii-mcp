@@ -1,15 +1,19 @@
 """Entry point of the Claude Desktop bundle for cinii-mcp.
 
-The bundle vendors no libraries. Its manifest declares server.type "uv", so
-Claude Desktop runs this file with uv from the folder it sits in:
+The bundle vendors no libraries. Its manifest declares server.type "uv" and
+keeps pyproject.toml, uv.lock and this file together at the bundle root,
+which is the layout Claude Desktop's UV runtime expects. When the extension
+is installed the app runs `uv sync` there with uv (one on the PATH, else a
+copy it downloads), using a
+Python already on the machine that satisfies requires-python (downloading one
+only if there is none) and installing the locked dependencies into
+<bundle>/.venv. Each launch then runs, from the bundle folder:
 
-    uv --directory <bundle>/server run --frozen <bundle>/server/main.py
+    uv run --directory <bundle> --frozen main.py
 
-uv reads pyproject.toml and uv.lock beside this file, uses a Python already
-on the machine that satisfies requires-python (downloading one only if there
-is none), installs the locked dependencies into <bundle>/server/.venv, and starts the same stdio
-server the console script starts. The first launch downloads; later ones do
-not.
+which reuses that environment and starts the same stdio server the console
+script starts. Where a host skipped the install-time step, the same command
+builds the environment on first launch instead; later launches do not.
 """
 import os
 import sys

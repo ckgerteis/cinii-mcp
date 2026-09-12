@@ -172,16 +172,16 @@ official installers include.
 
 ### One click: the Claude Desktop bundle
 
-Download `cinii-mcp-3.1.1.mcpb` from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. One bundle serves Windows, macOS (Apple Silicon and Intel) and Linux. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain.
+Download `cinii-mcp-3.1.2.mcpb` from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. One bundle serves Windows, macOS (Apple Silicon and Intel) and Linux. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain.
 
-The bundle carries the server's source and a lock file, nothing compiled, and needs no Python of its own: Claude Desktop runs it with [uv](https://docs.astral.sh/uv/), using a uv already on your PATH if there is one and otherwise the copy the app ships. On first launch uv uses a Python 3.10 or later already on the machine, downloading one only if there is none, and installs the locked libraries: roughly 40 MB, or 60 MB with an interpreter, which took 26 to 46 seconds on the author's connection; later launches take under a second. If the first launch is slow enough that Claude Desktop reports the server disconnected, restart the app: what uv already fetched is cached, and the second launch completes. Bundles before 3.1.0 vendored libraries compiled for CPython 3.12 only and failed on every other interpreter; see [Troubleshooting](#troubleshooting).
+The bundle carries the server's source and a lock file, nothing compiled, and needs no Python of its own. Claude Desktop builds the bundle's environment when you install it, with [uv](https://docs.astral.sh/uv/), a copy already on your PATH if there is one and otherwise one the app downloads for itself: uv takes a Python 3.10 or later already on the machine, downloads one only if there is none, and installs the locked libraries, roughly 40 MB, behind the install progress bar. Every launch then reuses that environment and takes under a second. Bundles 3.1.0 and 3.1.1 kept `pyproject.toml` one folder down, which made Claude Desktop skip that install step and download everything during the first connection attempt instead; on a slow or filtered network that attempt never completed and the app reported it could not connect to the extension server. Bundles before 3.1.0 vendored libraries compiled for CPython 3.12 only and failed on every other interpreter. See [Troubleshooting](#troubleshooting).
 
 ### From GitHub, pinned to a release
 
 ```bash
-pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.1.1"
+pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.1.2"
 # or, without an environment of your own:
-uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.1.1" cinii-mcp
+uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.1.2" cinii-mcp
 ```
 
 installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the thing to cite; `@main` gets whatever is current. Then register it in Claude Desktop (below), or let `install.py` do that.
@@ -294,7 +294,7 @@ stdio transport is the only one: there is no HTTP endpoint to expose, and nothin
 
 **"Server disconnected"** is all Claude Desktop says when the server process exited before or during the handshake, whatever the reason. The reason is in the log:
 
-- Windows: `%APPDATA%\Claude\logs\mcp-server-<name>.log` (the extension's display name, or the key under `mcpServers`), with `mcp.log` beside it for the app's side of the conversation.
+- Windows: `%LOCALAPPDATA%\Claude\Logs\mcp-server-<name>.log` (builds before August 2026: `%APPDATA%\Claude\logs`) (the extension's display name, or the key under `mcpServers`), with `mcp.log` beside it for the app's side of the conversation.
 - macOS: `~/Library/Logs/Claude/mcp-server-<name>.log` and `mcp.log`.
 - Linux: `~/.config/Claude/logs/`.
 
@@ -302,7 +302,7 @@ Read the last launch from the bottom up. Three shapes account for nearly every r
 
 - **A Python traceback ending in `ImportError` or `ModuleNotFoundError`** (for example `No module named 'pydantic_core._pydantic_core'`). The interpreter started, the code was found, and a compiled library did not match that interpreter. This is what every bundle before 3.1.0 did on any Python other than 3.12. Install the current bundle, or use the pip route, which resolves wheels for the interpreter you install into.
 - **`'python' is not recognized`, `spawn python ENOENT`, or a line from the Microsoft Store**: no interpreter was found on the PATH Claude Desktop constructs. Nothing of this server ran. The current bundle does not launch `python` at all; for the pip route, register the console script by absolute path as shown above.
-- **A line from uv** (`error: ...`, or a download that never finished): the current bundle's runtime could not build its environment, usually because the first launch had no network or ran past Claude Desktop's sixty-second limit. Restart the app; uv keeps what it fetched. A uv older than 0.5 cannot read the lock file; upgrade it or remove it so the app uses its own.
+- **A line from uv** (`error: ...`, or a download that never finished), or `Unable to connect to extension server` with nothing from the server in the log: the environment was not built. From 3.1.2 the app builds it at install time; look in `main.log` beside the server log for lines tagged `[UV Runtime]`, which record the download and the `uv sync`, and for `missing pyproject.toml`, which means a bundle older than 3.1.2. If the install-time build failed (no network, a proxy that blocks github.com or pypi.org), reinstall the bundle once the network is back; the launch also rebuilds the environment itself, so a second launch on a working network completes.
 
 The bundle's own entry point writes one line naming the interpreter, its path and the supported range before re-raising an import failure, so a log from 3.1.0 onwards says which of these it is.
 

@@ -7,6 +7,48 @@ the text and, where a version DOI exists, cited by it.
 Releases earlier than those below are on the repository's releases page; this
 file begins where the record is precise enough to be worth writing down.
 
+## 3.1.2 — 2026-09-12
+
+**The bundle's environment is built when it is installed, not during the first
+connection.**
+
+- **What was wrong.** 3.1.0 and 3.1.1 kept `pyproject.toml`, `uv.lock` and the
+  entry point under `server/`. Claude Desktop's UV runtime looks for
+  `pyproject.toml` at the bundle root when an extension is installed; finding
+  it, it takes a uv already on the PATH or downloads its own (0.9.7 at the time
+  of writing) and runs `uv sync` there behind a progress bar, so the interpreter and the libraries arrive before the server is ever
+  launched. Not finding it, the app logs `missing pyproject.toml. Cannot
+  proceed with UV setup`, installs the extension anyway, and the first
+  connection attempt has to fetch uv, an interpreter and roughly 40 MB of
+  libraries inside the launch timeout. That took 26 to 46 seconds on the
+  author's connection against a limit of about sixty; on a Mac mini (M4,
+  macOS 26.6.2) it never completed, and the app showed "Unable to connect to
+  extension server" for this bundle, ndl and jstage alike (reported
+  7 September 2026). Read from the app's code, not inferred: the install
+  step, its root-path check and its log line, and the launch step that runs
+  the app's own uv with the manifest's arguments from the bundle folder.
+- **What changed.** `pyproject.toml`, `uv.lock` and `main.py` are at the
+  bundle root and the manifest launches `uv run --directory ${__dirname}
+  --frozen main.py`. The install-time `uv sync` now runs; measured on the
+  ndl bundle with the app's uv 0.9.7 on an empty cache, install took 3 s and
+  the launch answered `initialize` in 2.4 s, against 1.8 s for the same
+  launch warm. Where a host skips the install step the launch still builds
+  the environment itself.
+- **The gate that would have caught it.** `tests/bundle_handshake.py` now
+  runs the install phase before the launch, fails a bundle whose
+  `pyproject.toml` is not at the root, and fails a launch that takes longer
+  than thirty seconds to answer. The 3.1.1 bundle fails it. The previous gate
+  allowed 240 seconds and launched without the install phase, which is why
+  3.1.0 and 3.1.1 passed CI and did not run on the machine that reported them.
+- Observed in the app, not only reproduced: installed here under a test name,
+  `main.log` shows `Setting up UV environment`, `Found system UV`,
+  `Running uv sync` and `Setup completed successfully` six seconds later, then
+  a launch that connected with all tools eight seconds after the launch line,
+  and a live call answered. The same log's predecessor shows the 1.2.1 layout
+  installed on 8 September as `ndl-runtime-test` with the app recording
+  `missing pyproject.toml. Cannot proceed with UV setup`; the line was there
+  and went unread.
+
 ## 3.1.1 — 2026-09-08
 
 - **The bundle no longer pins Python 3.13.** 3.1.0 shipped a `.python-version`
