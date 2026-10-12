@@ -21,10 +21,11 @@ import os
 import re
 import sys
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
+from urllib.parse import quote, quote_plus, urlsplit
 
 import httpx
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 try:  # mcp SDK 1.x
     from mcp.server.fastmcp import FastMCP as _MCPServer
 except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
@@ -104,18 +105,52 @@ class ResponseLang(str, Enum):
 # ==============================================================================
 
 
+def _redact(text: str) -> str:
+    """Remove the appid in every form a URL or echo could carry it."""
+    if CINII_APPID:
+        for form in {CINII_APPID, quote(CINII_APPID, safe=""), quote_plus(CINII_APPID), quote(CINII_APPID)}:
+            text = text.replace(form, "[redacted]")
+    return text
+
+
+def _transport_diag(exc: Exception) -> dict:
+    if isinstance(exc, httpx.InvalidURL):
+        return M.diag("error", "TRANSPORT_ERROR",
+                      f"The request to CiNii could not be formed: {_redact(str(exc))[:300]}.",
+                      "Shorten the query or remove control characters; nothing was sent.")
+    return M.diag("error", "TRANSPORT_ERROR",
+                  f"Network error reaching CiNii: {_redact(f'{type(exc).__name__}: {exc}')[:300]}.", "Retry shortly.")
+
+
 async def _cinii_request(path: str, params: dict) -> dict:
     params = dict(params)
     params["appid"] = CINII_APPID
     params["format"] = "json"
     url = f"{OPENSEARCH_V2}/{path}" if path else OPENSEARCH_V2
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False) as client:
         resp = await client.get(url, params=params)
     if resp.status_code == 404:
         return {"error": "Not found (HTTP 404)."}
     if resp.status_code >= 400:
-        return {"error": f"CiNii API error {resp.status_code}: {resp.text[:300]}"}
+        return {"error": f"CiNii API error {resp.status_code}: {_redact(resp.text)[:300]}"}
     return resp.json()
+
+
+def _not_shape(expected: str, data: Any) -> dict:
+    said = ""
+    if isinstance(data, dict):
+        msg = data.get("error") or data.get("message")
+        if msg:
+            said = f' It said: "{str(msg)[:200]}".'
+        shape = f"an object with keys {sorted(map(str, data))[:6]}"
+    else:
+        shape = "null" if data is None else f"a {type(data).__name__}"
+    return M.diag(
+        "error", "API_ERROR",
+        f"CiNii answered 200, but with {shape} rather than {expected}.{said}",
+        "The result is unknown, not empty. Retry before concluding anything "
+        "about the literature.",
+    )
 
 
 async def _run(path: str, qp: dict) -> tuple[Optional[dict], Optional[dict]]:
@@ -123,9 +158,16 @@ async def _run(path: str, qp: dict) -> tuple[Optional[dict], Optional[dict]]:
     try:
         data = await _cinii_request(path, qp)
     except Exception as exc:  # noqa: BLE001
-        return None, M.diag("error", "TRANSPORT_ERROR", f"Network error reaching CiNii: {exc}.", "Retry shortly.")
+        return None, _transport_diag(exc)
     if isinstance(data, dict) and "error" in data:
         return None, M.diag("error", "API_ERROR", str(data["error"]), None)
+    # opensearch:totalResults is required by the CiNii OpenSearch spec. A 200
+    # body without it (null, {}, a gateway's error object) is an answer that did
+    # not arrive; read as a page it came back as ZERO_CONJUNCTION, an outage
+    # reported as an un-indexed compound.
+    if not (isinstance(data, dict) and "opensearch:totalResults" in data
+            and isinstance(data.get("items", []), list)):
+        return None, _not_shape("a search results page", data)
     return data, None
 
 
@@ -404,8 +446,12 @@ def _build_params(base: dict, extra: dict) -> dict:
 # ==============================================================================
 
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+QUERY_MAX = 2000
+
+
 class ArticleSearchInput(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid", str_max_length=QUERY_MAX)
     query: str = Field(..., description="Search query (Japanese or English)", min_length=1)
     title: Optional[str] = Field(default=None)
     author: Optional[str] = Field(default=None)
@@ -420,7 +466,7 @@ class ArticleSearchInput(BaseModel):
 
 
 class BookSearchInput(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid", str_max_length=QUERY_MAX)
     query: str = Field(..., min_length=1)
     title: Optional[str] = Field(default=None)
     author: Optional[str] = Field(default=None)
@@ -434,7 +480,7 @@ class BookSearchInput(BaseModel):
 
 
 class DissertationSearchInput(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid", str_max_length=QUERY_MAX)
     query: str = Field(..., min_length=1)
     author: Optional[str] = Field(default=None)
     from_year: Optional[int] = Field(default=None, ge=1800)
@@ -445,7 +491,7 @@ class DissertationSearchInput(BaseModel):
 
 
 class KakenSearchInput(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid", str_max_length=QUERY_MAX)
     query: str = Field(..., min_length=1)
     researcher: Optional[str] = Field(default=None)
     institution: Optional[str] = Field(default=None)
@@ -457,7 +503,7 @@ class KakenSearchInput(BaseModel):
 
 
 class CrossSearchInput(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid", str_max_length=QUERY_MAX)
     query: str = Field(..., min_length=1)
     from_year: Optional[int] = Field(default=None, ge=1800)
     to_year: Optional[int] = Field(default=None)
@@ -467,7 +513,7 @@ class CrossSearchInput(BaseModel):
 
 
 class ResearcherSearchInput(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid", str_max_length=QUERY_MAX)
     query: str = Field(..., min_length=1)
     institution: Optional[str] = Field(default=None)
     lang: ResponseLang = Field(default=ResponseLang.ENGLISH)
@@ -476,8 +522,15 @@ class ResearcherSearchInput(BaseModel):
 
 
 class RecordLookupInput(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    record_url: str = Field(..., description="Full CiNii URL or CRID", min_length=1)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid", str_max_length=QUERY_MAX)
+    record_url: str = Field(..., description="Full CiNii URL or CRID", min_length=1, max_length=QUERY_MAX)
+
+    @field_validator("record_url")
+    @classmethod
+    def _no_control(cls, v: str) -> str:
+        if _CONTROL.search(v):
+            raise ValueError("record_url contains a control character")
+        return v
 
 
 # ==============================================================================
@@ -576,11 +629,14 @@ async def cinii_search_researchers(params: ResearcherSearchInput) -> str:
 async def cinii_get_record(params: RecordLookupInput) -> str:
     """Fetch a single CiNii record by URL or CRID. Returns the unified envelope (operation 'get_record')."""
     raw = params.record_url.strip()
+    if "/crid/" in raw:
+        # A pasted URL may carry ?lang=en or a fragment; neither is part of the CRID.
+        raw = urlsplit(raw).path if "://" in raw else raw.split("?", 1)[0].split("#", 1)[0]
     crid = raw.rsplit("/crid/", 1)[-1].strip("/") if "/crid/" in raw else raw
-    url = f"{BASE_URL}/crid/{crid}.json"  # JSON-LD record; the bare /crid/ page is HTML
+    url = f"{BASE_URL}/crid/{quote(crid, safe='')}.json"  # JSON-LD record; the bare /crid/ page is HTML
     record, err = None, None
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False) as client:
             resp = await client.get(url, params={"appid": CINII_APPID, "format": "json"})
         if resp.status_code >= 400:
             err = M.diag("error", "API_ERROR", f"CiNii returned HTTP {resp.status_code} for this record.", "Check the CRID and retry.")
@@ -589,8 +645,13 @@ async def cinii_get_record(params: RecordLookupInput) -> str:
                 record = resp.json()
             except ValueError:
                 err = M.diag("error", "API_ERROR", "CiNii did not return a JSON record for this identifier.", "Confirm the CRID identifies an indexed record.")
+            else:
+                # A JSON-LD record names itself in @id. Anything else ({}, null,
+                # an error object) used to come back as "Single record resolved."
+                if not (isinstance(record, dict) and isinstance(record.get("@id"), str)):
+                    err, record = _not_shape("a JSON-LD record", record), None
     except Exception as exc:  # noqa: BLE001
-        err = M.diag("error", "TRANSPORT_ERROR", f"Network error reaching CiNii: {exc}.", "Retry shortly.")
+        err = _transport_diag(exc)
 
     items = [_item_from_record(record)] if isinstance(record, dict) else []
     total = 1 if items else 0
