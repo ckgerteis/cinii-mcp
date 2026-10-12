@@ -101,6 +101,8 @@ VENDORED = [
     "tests/bundle_handshake.py",
     "{pkg}/ledger.py",
     "{pkg}/mediation.py",
+    "set_version.py",
+    "tests/test_release_metadata.py",
 ]
 
 

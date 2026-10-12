@@ -39,7 +39,7 @@ except ImportError as exc:
     sys.stderr.write(
         f"cinii-mcp: cannot import its package under Python {sys.version.split()[0]} "
         f"at {sys.executable}: {exc}\n"
-        f"cinii-mcp: supported Python is >=3.10; this file is meant to be run by uv "
+        f"cinii-mcp: supported Python is >=3.10,<3.15; this file is meant to be run by uv "
         f'(uv --directory "{_here}" run --frozen main.py), which provisions the '
         f"interpreter and the libraries from the pyproject.toml and uv.lock beside it. "
         f"If uv could not build that environment its own message is above this line.\n"
