@@ -2,9 +2,10 @@
 
 pyproject.toml is the source. mcpb/build.py already refuses to build when
 manifest.template.json disagrees with it, so that pair is covered. This test
-covers the two files nothing checked: .zenodo.json, which Zenodo reads at the
-tagged commit when it mints the DOI, and CITATION.cff, which GitHub parses for
-the "Cite this repository" button.
+covers the files nothing else checked: .zenodo.json, which Zenodo reads at the
+tagged commit when it mints the DOI; CITATION.cff, which GitHub parses for
+the "Cite this repository" button; and `__version__` under src/, which the
+server reports when a client connects.
 
 Both are maintained by hand, and on 2026-09-08 ndl-mcp released v1.2.1 with
 `version: 1.2.0` and `cff-version: 1.2.1` in CITATION.cff — the two numbers
@@ -86,3 +87,20 @@ def test_citation_declares_a_released_specification() -> None:
 def test_citation_release_date_is_a_date() -> None:
     raw = _one(r'^date-released:\s*"?([^"\n]+)"?\s*$', _read("CITATION.cff"), "date-released", "CITATION.cff")
     _dt.date.fromisoformat(raw)  # raises ValueError on anything that is not YYYY-MM-DD
+
+
+def test_reported_version_matches_pyproject() -> None:
+    """The server answers a client with __version__. The bundle handshake fails a
+    server that reports another version, but only when a bundle is built; the
+    12 October 2026 bumps reached CI with __version__ still on the old release."""
+    found = {}
+    for path in sorted((ROOT / "src").glob("*/*.py")):
+        values = re.findall(r'^__version__\s*=\s*"([^"]+)"', path.read_text(encoding="utf-8"), re.MULTILINE)
+        if values:
+            found[path.relative_to(ROOT).as_posix()] = values
+    assert found, "no module under src/ declares __version__"
+    for where, values in found.items():
+        assert values == [project_version()], (
+            f"{where} says {values}, pyproject says {project_version()}. "
+            "The server would report a version that is not the one released."
+        )
