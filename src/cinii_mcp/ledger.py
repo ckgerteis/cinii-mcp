@@ -48,6 +48,12 @@ produced 14 forks. Hence MCP_RECEIPT_DIR and a file per server. verify_chain()
 reports a fork as a fork rather than as tampering, because the two mean entirely
 different things about a deposit.
 
+An interrupted write leaves a last line that does not parse. Nothing is appended
+after one: the deposit is refused (RECEIPT_WRITE_FAILED, or an exception under
+MCP_RECEIPT_STRICT) and the file is left exactly as found, because appending
+would glue the new line onto the partial one and restart the chain mid-file.
+verify_chain() reports the line as 'unreadable'. Removing it restores the file.
+
 Secrets are never written. Any parameter whose name matches _SECRET_KEYS is
 replaced with the string "[redacted]" before the line is composed, because these
 logs are written to be deposited.
@@ -64,10 +70,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional
 
-LEDGER_VERSION = "1.1.0"
+LEDGER_VERSION = "1.2.0"
 
 _LOCK = threading.Lock()
 _GENESIS = "0" * 64
+
+
+class LedgerUnreadable(Exception):
+    """The last line of a receipts file is not a complete receipt line."""
 
 _SECRET_KEYS = {
     "appid", "api_key", "apikey", "key", "token", "access_token",
@@ -125,26 +135,45 @@ def _stable_hash(payload: Mapping[str, Any]) -> str:
 
 
 def _last_hash(path: str) -> str:
+    """The hash the next line must claim: that of the last line, or genesis for
+    an empty file.
+
+    Raises LedgerUnreadable when the last line is not a complete receipt line:
+    cut short by an interrupted write, missing its newline, undecodable, or
+    without a hash. Version 1.1 fell back to genesis on any such failure and
+    appended anyway, which glued the new line onto the partial one and restarted
+    the chain mid-file; nothing reported it. Refusing leaves the file as found.
+    """
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         return _GENESIS
-    try:
-        with open(path, "rb") as fh:
-            fh.seek(0, os.SEEK_END)
-            end = fh.tell()
-            buf = b""
-            while end > 0:
-                start = max(0, end - 4096)
-                fh.seek(start)
-                buf = fh.read(end - start) + buf
-                if len([l for l in buf.split(b"\n") if l.strip()]) >= 2 or start == 0:
-                    break
-                end = start
-        lines = [l for l in buf.splitlines() if l.strip()]
-        if not lines:
-            return _GENESIS
-        return json.loads(lines[-1].decode("utf-8")).get("hash", _GENESIS)
-    except Exception:
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        end = fh.tell()
+        buf = b""
+        while end > 0:
+            start = max(0, end - 4096)
+            fh.seek(start)
+            buf = fh.read(end - start) + buf
+            if len([l for l in buf.split(b"\n") if l.strip()]) >= 2 or start == 0:
+                break
+            end = start
+    lines = [l for l in buf.splitlines() if l.strip()]
+    if not lines:
         return _GENESIS
+    h = None
+    if buf.rstrip(b" \t\r").endswith(b"\n"):
+        try:
+            last = json.loads(lines[-1].decode("utf-8"))
+        except ValueError:
+            last = None
+        if isinstance(last, dict) and isinstance(last.get("hash"), str) and len(last["hash"]) == 64:
+            h = last["hash"]
+    if h is None:
+        raise LedgerUnreadable(
+            f"{path}: the last line is not a complete receipt line (an interrupted "
+            "write?). Nothing was appended. Run `<dist>-ledger verify` on the file and "
+            "remove the unreadable line to resume depositing.")
+    return h
 
 
 def _write(line: dict) -> Optional[dict]:
@@ -326,6 +355,37 @@ def detect_script(s: Optional[str]) -> str:
 
 # ---------------------------------------------------------------- reading
 
+def _load(path: str) -> tuple[list, Optional[int]]:
+    """Every line up to the first that is not a JSON object, and the position of
+    that line among the non-blank lines (None if all are readable)."""
+    records: list = []
+    with open(path, "rb") as fh:
+        for raw in fh:
+            if not raw.strip():
+                continue
+            try:
+                rec = json.loads(raw.decode("utf-8"))
+            except ValueError:
+                rec = None
+            if not isinstance(rec, dict):
+                return records, len(records) + 1
+            records.append(rec)
+    return records, None
+
+
+def _readable(path: str) -> Iterable[dict]:
+    """Every line that parses, skipping any that do not. For counting only;
+    verify_chain() is what reports an unreadable line."""
+    with open(path, "rb") as fh:
+        for raw in fh:
+            try:
+                rec = json.loads(raw.decode("utf-8")) if raw.strip() else None
+            except ValueError:
+                rec = None
+            if isinstance(rec, dict):
+                yield rec
+
+
 def read_log(path: str) -> Iterable[dict]:
     with open(path, encoding="utf-8") as fh:
         for line in fh:
@@ -352,13 +412,29 @@ def verify_chain(path: str) -> dict:
         'reordered'  the lines are all present and all self-consistent, and they
                      are not in chain order.
         'tamper'     a line does not hash to its own content. It was edited.
+        'unreadable' a line is not JSON: typically a last line cut short by an
+                     interrupted write. The lines before it are checked first
+                     and reported on their own terms if they fail; lines after
+                     it are not checked. Removing it restores the chain.
 
     Only the last is a claim about honesty. A fork is a configuration fault: the
     file is several chains rather than one, and reading it as such recovers
     every line. Reporting the two the same way would invite a reader to treat a
     misconfiguration as evidence of interference, or the reverse.
     """
-    records = list(read_log(path))
+    records, bad_at = _load(path)
+    result = _verify_records(records)
+    if result["ok"] and bad_at is not None:
+        return {"ok": False, "lines": len(records), "break_at": bad_at,
+                "kind": "unreadable",
+                "reason": ("line is not JSON (an interrupted write?); the "
+                           f"{len(records)} line(s) before it verify, and lines "
+                           "after it were not checked"),
+                "terminal_hash": None}
+    return result
+
+
+def _verify_records(records: list) -> dict:
     n = len(records)
     if n == 0:
         return {"ok": True, "lines": 0, "break_at": None, "kind": None,
@@ -452,7 +528,7 @@ def verify_dir(directory: str) -> dict:
             by_server[k] = by_server.get(k, 0) + c
         for k, c in s["by_script"].items():
             by_script[k] = by_script.get(k, 0) + c
-        for rec in read_log(path):
+        for rec in _readable(path):
             sess = rec.get("session") or ""
             sessions[sess] = sessions.get(sess, 0) + 1
         if s["first"] and (first is None or s["first"] < first):
@@ -501,7 +577,7 @@ def summary(path: str) -> dict:
     by_script: dict = {}
     n = 0
     first = last = None
-    for rec in read_log(path):
+    for rec in _readable(path):
         n += 1
         first = first or rec.get("ts")
         last = rec.get("ts")

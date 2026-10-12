@@ -415,6 +415,9 @@ def _mark_undeposited(envelope: dict, configured: bool) -> None:
             _UNDEPOSITED + " A receipts destination is set, so the write was "
             "attempted and did not land.",
             "Check MCP_RECEIPT_DIR (or MCP_RECEIPT_LOG) is writable and has space. "
+            "If it is, the file's last line may be unreadable after an interrupted "
+            "write: `<dist>-ledger verify <file>` says so, and nothing is appended "
+            "until that line is removed. "
             "Set MCP_RECEIPT_STRICT=1 to make the next failure raise rather than pass.",
         )
     else:
