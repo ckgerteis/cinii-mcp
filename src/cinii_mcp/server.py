@@ -21,7 +21,7 @@ import os
 import re
 import sys
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from pydantic import BaseModel, Field, ConfigDict
@@ -118,6 +118,23 @@ async def _cinii_request(path: str, params: dict) -> dict:
     return resp.json()
 
 
+def _not_shape(expected: str, data: Any) -> dict:
+    said = ""
+    if isinstance(data, dict):
+        msg = data.get("error") or data.get("message")
+        if msg:
+            said = f' It said: "{str(msg)[:200]}".'
+        shape = f"an object with keys {sorted(map(str, data))[:6]}"
+    else:
+        shape = "null" if data is None else f"a {type(data).__name__}"
+    return M.diag(
+        "error", "API_ERROR",
+        f"CiNii answered 200, but with {shape} rather than {expected}.{said}",
+        "The result is unknown, not empty. Retry before concluding anything "
+        "about the literature.",
+    )
+
+
 async def _run(path: str, qp: dict) -> tuple[Optional[dict], Optional[dict]]:
     """Return (data, error_diag). error_diag is a typed diagnostic or None."""
     try:
@@ -126,6 +143,13 @@ async def _run(path: str, qp: dict) -> tuple[Optional[dict], Optional[dict]]:
         return None, M.diag("error", "TRANSPORT_ERROR", f"Network error reaching CiNii: {exc}.", "Retry shortly.")
     if isinstance(data, dict) and "error" in data:
         return None, M.diag("error", "API_ERROR", str(data["error"]), None)
+    # opensearch:totalResults is required by the CiNii OpenSearch spec. A 200
+    # body without it (null, {}, a gateway's error object) is an answer that did
+    # not arrive; read as a page it came back as ZERO_CONJUNCTION, an outage
+    # reported as an un-indexed compound.
+    if not (isinstance(data, dict) and "opensearch:totalResults" in data
+            and isinstance(data.get("items", []), list)):
+        return None, _not_shape("a search results page", data)
     return data, None
 
 
@@ -589,6 +613,11 @@ async def cinii_get_record(params: RecordLookupInput) -> str:
                 record = resp.json()
             except ValueError:
                 err = M.diag("error", "API_ERROR", "CiNii did not return a JSON record for this identifier.", "Confirm the CRID identifies an indexed record.")
+            else:
+                # A JSON-LD record names itself in @id. Anything else ({}, null,
+                # an error object) used to come back as "Single record resolved."
+                if not (isinstance(record, dict) and isinstance(record.get("@id"), str)):
+                    err, record = _not_shape("a JSON-LD record", record), None
     except Exception as exc:  # noqa: BLE001
         err = M.diag("error", "TRANSPORT_ERROR", f"Network error reaching CiNii: {exc}.", "Retry shortly.")
 
