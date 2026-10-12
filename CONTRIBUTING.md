@@ -24,7 +24,7 @@ python -m venv .venv
 .venv/bin/pip install -e ".[test]"        # Windows: .venv\Scripts\pip
 ```
 
-Python 3.10 or later; 3.10, 3.12, 3.13 and 3.14 are what CI runs, on Windows, macOS and Linux.
+Python 3.10 to 3.14; 3.10, 3.11, 3.12, 3.13 and 3.14 are what CI runs, on Windows, macOS and Linux.
 
 ## Running the checks
 
@@ -63,7 +63,8 @@ without it pays at launch. A bundle that builds is not a bundle that runs.
 
 These files are byte-identical in all six server repositories and must stay so:
 `response-schema.json`, `install.ps1`, `install.py`, `mcpb/build.py`, `tests/smoke_stdio.py`,
-`tests/bundle_handshake.py`, `src/<pkg>/ledger.py`, `src/<pkg>/mediation.py`. If your change touches
+`tests/bundle_handshake.py`, `src/<pkg>/ledger.py`, `src/<pkg>/mediation.py`, `set_version.py`,
+`tests/test_release_metadata.py`. If your change touches
 one of them, say so in the pull request: it has to land in all six, and each repository's CI checks
 its copies against `VENDORED.sha256` (`python mcpb/build.py --check-identity`). A change to the
 envelope (`mediation.py`, `response-schema.json`) is a change to what every server promises its
