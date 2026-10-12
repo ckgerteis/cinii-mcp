@@ -383,11 +383,43 @@ def _item_from_cinii(raw: dict, record_type: str) -> dict:
     )
 
 
+# A record whose fields have the wrong types (a string where an object
+# belongs, a number for a title) raised out of the builder and took the whole
+# page with it: the caller got an exception, no envelope and no receipt.
+_UNREADABLE = (AttributeError, TypeError, ValueError, KeyError, IndexError, OverflowError)
+
+
+def _build_all(records: list, build, id_key: str) -> tuple[list[dict], Optional[dict]]:
+    """Build every record that can be read; skip and name the rest.
+
+    Returns (items, diagnostic-or-None). The diagnostic is RECORD_UNREADABLE,
+    naming each skipped record by its position on the page and, where it has
+    one, its identifier."""
+    items: list[dict] = []
+    bad: list[str] = []
+    for pos, rec in enumerate(records, 1):
+        try:
+            items.append(build(rec))  # a non-object record fails here too
+        except _UNREADABLE:
+            rid = rec.get(id_key) if isinstance(rec, dict) else None
+            bad.append(f"#{pos}" + (f" ({rid[:100]})" if isinstance(rid, str) and rid else ""))
+    if not bad:
+        return items, None
+    named = "; ".join(bad[:10]) + ("; and more" if len(bad) > 10 else "")
+    return items, M.diag(
+        "warning", "RECORD_UNREADABLE",
+        f"{len(bad)} of {len(records)} record(s) could not be read and were left out: {named}.",
+        "The upstream record is malformed, not absent. The other records are complete; "
+        "look the omitted ones up by identifier or retry later.",
+    )
+
+
 def _envelope(
     *, operation: str, record_type: str, query_str: str, qp: dict,
     data: Optional[dict], error_diag: Optional[dict], monograph_note: bool = False,
 ) -> str:
-    items = [_item_from_cinii(r, record_type) for r in (data.get("items", []) if data else [])]
+    items, bad = _build_all((data.get("items", []) if data else []),
+                            lambda r: _item_from_cinii(r, record_type), "@id")
     total = 0
     if data is not None:
         try:
@@ -399,6 +431,8 @@ def _envelope(
     ds: list[dict] = []
     if error_diag:
         ds.append(error_diag)
+    if bad:
+        ds.append(bad)
     if script == "latin":
         ds.append(M.diag(
             "warning", "SCRIPT_LATIN_QUERY",
@@ -406,7 +440,7 @@ def _envelope(
             f"({total} records). The Japanese-script form reaches a different, larger corpus.",
             "Re-issue in kanji/kana (e.g. 暴走族) to search the Japanese-language literature.",
         ))
-    if not error_diag and not items:
+    if not error_diag and not items and not bad:
         ds.append(M.diag(
             "warning", "ZERO_CONJUNCTION",
             "No records. CiNii matches catalogued metadata and ANDs multi-word queries, "
@@ -653,9 +687,9 @@ async def cinii_get_record(params: RecordLookupInput) -> str:
     except Exception as exc:  # noqa: BLE001
         err = _transport_diag(exc)
 
-    items = [_item_from_record(record)] if isinstance(record, dict) else []
-    total = 1 if items else 0
-    ds = [err] if err else [M.diag("info", "OK", "Single record resolved.", None)]
+    items, bad = _build_all([record], _item_from_record, "@id") if isinstance(record, dict) else ([], None)
+    total = len(items)
+    ds = [err] if err else [bad] if bad else [M.diag("info", "OK", "Single record resolved.", None)]
     env = M.build_envelope(
         server="cinii", operation="get_record", input_terms=params.record_url, normalized=crid,
         params={"record_url": params.record_url}, matching_mode=MATCHING_MODE, total=total, start=1,

@@ -84,6 +84,7 @@ Typed and closed. A diagnostic is never prose the client has to parse.
 | `OK` | info | Records returned; nothing to flag. |
 | `ZERO_CONJUNCTION` | warning | No records. CiNii matches catalogued metadata and ANDs a multi-word query, so an un-indexed compound returns zero even where related work exists. Vary the rendering before concluding the literature is absent. |
 | `SCRIPT_LATIN_QUERY` | warning | The query was Latin-script, so it matched romanised and English metadata only. The Japanese-script form reaches a different, larger corpus. |
+| `RECORD_UNREADABLE` | warning | One or more records on the page had fields of the wrong type and could not be read. They are left out and named by position and identifier; the other records are complete. A malformed record is not an absent one. |
 | `API_ERROR` | error | The API answered, and answered with an error. |
 | `TRANSPORT_ERROR` | error | The request did not complete. Kept distinct from `API_ERROR` because a failed search has an unknown result and must never be written up as an absence. |
 | `RECEIPT_NOT_DEPOSITED` | info | The response was not written to the query ledger, because no receipts destination is configured. The search is unaffected; no receipt survives it. |
