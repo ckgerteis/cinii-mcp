@@ -24,7 +24,7 @@ python -m venv .venv
 .venv/bin/pip install -e ".[test]"        # Windows: .venv\Scripts\pip
 ```
 
-Python 3.10 or later; 3.10, 3.12, 3.13 and 3.14 are what CI runs, on Windows, macOS and Linux.
+Python 3.10 or later; 3.10, 3.11, 3.12, 3.13 and 3.14 are what CI runs, on Windows, macOS and Linux.
 
 ## Running the checks
 

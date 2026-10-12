@@ -149,7 +149,7 @@ The same application ID also works for the KAKEN API, which `cinii_search_kaken`
 
 Three routes. All three give you the same server; pick by how much you want to see of it.
 
-**Python.** The pip and source routes need Python 3.10 or later; 3.10, 3.12, 3.13 and 3.14 are tested in CI on Windows, macOS and Linux. The Claude Desktop bundle uses whichever of these is already installed, and has uv download one only if none is.
+**Python.** The pip and source routes need Python 3.10 or later; 3.10, 3.11, 3.12, 3.13 and 3.14 are tested in CI on Windows, macOS and Linux. The Claude Desktop bundle uses whichever of these is already installed, and has uv download one only if none is.
 
 ### Getting Python
 
