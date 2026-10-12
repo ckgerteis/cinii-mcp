@@ -216,6 +216,29 @@ def make_item(
     }
 
 
+def scrub(value: Any) -> Any:
+    """Replace lone UTF-16 surrogates with U+FFFD, recursively.
+
+    A JSON body can carry an escape such as "\\ud800", which decodes to a lone
+    surrogate: legal in a Python str, not encodable as UTF-8. Left in an
+    envelope it reached the MCP SDK's UTF-8 serializer, which raised, and the
+    server process exited and answered nothing more (cinii-mcp, 12 October
+    2026). U+FFFD keeps the damage visible in the text without letting one bad
+    record take the server down. Valid text is returned as the same object.
+    """
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            return "".join("\ufffd" if "\ud800" <= ch <= "\udfff" else ch for ch in value)
+        return value
+    if isinstance(value, dict):
+        return {scrub(k): scrub(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [scrub(v) for v in value]
+    return value
+
+
 def make_receipt(normalized: str, params: dict, items: list[dict]) -> dict:
     """A loggable, citable receipt: stable hash + the record identifiers.
 
@@ -267,7 +290,13 @@ def build_envelope(
     total — OAK sends no completeListSize — the caller passes the number of
     records the window actually yielded and raises OAI_WINDOW_TRUNCATED, so
     that a returned count is never mistaken for a corpus count.
+
+    Every string argument is passed through scrub() first, so the receipt hash
+    is computed over the same text the client receives.
     """
+    input_terms, normalized, params, items, diagnostics = scrub(
+        (input_terms, normalized, params, items, diagnostics))
+    attribution, coverage_note, suggestions = scrub((attribution, coverage_note, suggestions))
     try:
         total_i = int(total)
     except (TypeError, ValueError):
@@ -318,8 +347,12 @@ def build_envelope(
 
 
 def dumps(envelope: dict) -> str:
-    """Serialize an envelope deterministically for return to the client."""
-    return json.dumps(envelope, ensure_ascii=False, indent=2)
+    """Serialize an envelope deterministically for return to the client.
+
+    scrub() again here: a server may add text to an envelope after
+    build_envelope(), and this is the last point before the wire.
+    """
+    return json.dumps(scrub(envelope), ensure_ascii=False, indent=2)
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +448,7 @@ def emit(envelope: dict) -> str:
     envelopes, visible nowhere except a config file. The diagnostic puts that
     fact in the artefact that becomes the record, at the moment of the search.
     """
+    envelope = scrub(envelope)
     written = _ledger.record_envelope(envelope) if _ledger is not None else None
     if written is None:
         _mark_undeposited(envelope, deposit_enabled())
