@@ -414,18 +414,31 @@ def _build_all(records: list, build, id_key: str) -> tuple[list[dict], Optional[
     )
 
 
+def _count(v: Any) -> Optional[int]:
+    """A count from the API: a non-negative integer, or None. JSON numbers such
+    as 1e309 parse as infinity, and int() of that raises OverflowError;
+    is_integer() is False for infinity and NaN. A negative or fractional count
+    is not a count either."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v if v >= 0 else None
+    if isinstance(v, float):
+        return int(v) if v.is_integer() and v >= 0 else None
+    if isinstance(v, str) and v.strip().isdecimal():
+        return int(v.strip())
+    return None
+
+
 def _envelope(
     *, operation: str, record_type: str, query_str: str, qp: dict,
     data: Optional[dict], error_diag: Optional[dict], monograph_note: bool = False,
 ) -> str:
     items, bad = _build_all((data.get("items", []) if data else []),
                             lambda r: _item_from_cinii(r, record_type), "@id")
-    total = 0
-    if data is not None:
-        try:
-            total = int(data.get("opensearch:totalResults", 0))
-        except (TypeError, ValueError):
-            total = 0
+    total = _count(data.get("opensearch:totalResults")) if data is not None else 0
+    if total is None:
+        total = len(items)
     script = M.detect_script(query_str)
 
     ds: list[dict] = []
