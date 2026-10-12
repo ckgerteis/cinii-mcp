@@ -5,12 +5,15 @@
     python set_version.py 1.2.2 --date 2026-09-15   # default is today, UTC
     python set_version.py --check                   # report, change nothing
 
-Four files carry a version number and they must agree: pyproject.toml, which is
+Five places carry a version number and they must agree: pyproject.toml, which is
 the source; mcpb/manifest.template.json, which mcpb/build.py refuses to build
 against a mismatch; .zenodo.json, which Zenodo reads at the tagged commit when
-it mints the DOI; and CITATION.cff, which GitHub parses for the "Cite this
-repository" button. Editing four files by hand is how ndl-mcp v1.2.1 shipped
-with a CITATION.cff naming a release that did not exist.
+it mints the DOI; CITATION.cff, which GitHub parses for the "Cite this
+repository" button; and `__version__` in the package under src/, which the
+server reports when a client connects. Editing them by hand is how ndl-mcp
+v1.2.1 shipped with a CITATION.cff naming a release that did not exist; leaving
+`__version__` out is how the 12 October 2026 bumps failed the bundle handshake,
+whose server answered with the old version.
 
 Run this, read the diff, commit, then tag. The tag is what fires the release
 workflow, so the metadata must already be right in the commit the tag points at
@@ -42,6 +45,17 @@ TARGETS = [
 
 DATE_TARGET = ("CITATION.cff", r'(?m)^(date-released:\s*")([^"]+)("\s*)$')
 
+SOURCE_PATTERN = r'(?m)^(__version__\s*=\s*")([^"]+)(")'
+
+
+def _source_targets() -> list[tuple[str, str, str]]:
+    """The module under src/ that declares __version__. Found rather than named,
+    because the package name differs in each repository."""
+    found = [p for p in sorted((ROOT / "src").glob("*/*.py"))
+             if re.search(SOURCE_PATTERN, p.read_text(encoding="utf-8"))]
+    return [(p.relative_to(ROOT).as_posix(), "the version the server reports", SOURCE_PATTERN)
+            for p in found]
+
 
 def _sub_once(path: Path, pattern: str, value: str) -> tuple[str, str]:
     text = path.read_text(encoding="utf-8")
@@ -70,6 +84,7 @@ def main() -> int:
     args = ap.parse_args()
 
     present = [(name, why, pat) for name, why, pat in TARGETS if (ROOT / name).is_file()]
+    present += _source_targets()
     missing = [name for name, _, _ in TARGETS if not (ROOT / name).is_file()]
 
     if args.check:
