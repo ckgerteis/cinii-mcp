@@ -7,6 +7,42 @@ the text and, where a version DOI exists, cited by it.
 Releases earlier than those below are on the repository's releases page; this
 file begins where the record is precise enough to be worth writing down.
 
+## Unreleased (proposed 3.3.0)
+
+**CiNii's 2025–26 API additions, and one filter that never worked.** Every
+existing call that uses none of the new inputs sends exactly what it sent
+under 3.2.0, so its receipt hash is unchanged.
+
+- **The `journal` filter on `cinii_search_articles` was ignored.** It was sent
+  as `publicationName`; CiNii reads `publicationTitle`. Every journal-filtered
+  article search before this release returned the unfiltered result (青年 with
+  教育学研究: 69,977 records either way; 518 with the right name, live, 28 Oct
+  2026). Receipts of such searches record the filter as asked, not as applied.
+- **Holdings and libraries.** `cinii_get_holdings` (by NCID, with ILL, service,
+  Japan–US and Japan–Korea ILL, and journal year/volume/number filters) and
+  `cinii_search_libraries`, on the `/opensearch/holder` and `/opensearch/library`
+  endpoints CiNii Research opened on 30 March 2026. New diagnostics
+  `HOLDINGS_NONE_REGISTERED` and `LIBRARY_NONE_MATCHED`.
+- **Two more search types.** `cinii_search_data` (research data, including KAKEN
+  research data from 21 April 2026) and `cinii_search_projects_and_products`.
+- **Filters.** `language` (languageType) on every search but researchers;
+  `has_fulltext`, `resource_type` and `researcher_id` where CiNii accepts them;
+  `data_source` on every search tool, not only articles; `ncid`, `category` and
+  `exact_title` for books; `award_institution` and `degree` for dissertations;
+  `project_id` for KAKEN.
+- **All eleven v2 sort orders**, each accepted only for the search type CiNii
+  honours it on. An out-of-scope sort, an unknown `data_source` and a malformed
+  language code are refused before sending, because CiNii answers each with a
+  plausible page rather than an error.
+- **`query` is optional** where another criterion is given (an NCID, a project
+  number, a researcher ID). The envelope records the criteria as sent.
+- **Mixed searches type each record** from its own `dc:type`: `cinii_search_all`
+  no longer reports books and projects as articles. A `Dataset` or `Data`
+  record is now `dataset`, also in `cinii_get_record` (formerly `article`).
+- **An HTML page served with 200 is `API_ERROR`.** CiNii sends its
+  "ただいまご利用いただけません" page for some malformed requests; it was
+  reported as `TRANSPORT_ERROR` ("Network error reaching CiNii").
+
 ## 3.2.0 — 2026-10-12
 
 **Maintenance release from the stress test of 12 October 2026.** No tool was

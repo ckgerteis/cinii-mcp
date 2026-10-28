@@ -2,13 +2,13 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20999896.svg)](https://doi.org/10.5281/zenodo.20999896)
 
-A FastMCP stdio server exposing the [CiNii Research API](https://support.nii.ac.jp/en/cinii/api/api_outline) — Japan's national academic database, operated by the National Institute of Informatics (NII) — as seven tools for use with Claude Desktop and other MCP clients.
+A FastMCP stdio server exposing the [CiNii Research API](https://support.nii.ac.jp/en/cinii/api/api_outline) — Japan's national academic database, operated by the National Institute of Informatics (NII) — as eleven tools for use with Claude Desktop and other MCP clients.
 
 CiNii Research aggregates metadata from KAKEN, CiNii Articles, CiNii Books, IRDB, Crossref, DataCite, PubMed, and NDL Search. There is no established open MCP tooling for it, so this server fills that gap for researchers querying Japanese-language scholarship.
 
 ## What this is for
 
-CiNii Research indexes Japanese scholarship across five kinds of record, and this puts all of them inside a Claude conversation: journal articles, books and monographs, doctoral dissertations, KAKEN grant projects, and researcher profiles, plus single-record lookup by CRID. Ask a question in English and get Japanese-language scholarship back, with the Japanese term actually sent shown beside the results.
+CiNii Research indexes Japanese scholarship across six kinds of record, and this puts all of them inside a Claude conversation: journal articles, books and monographs, doctoral dissertations, research data, KAKEN grant projects, and researcher profiles, plus single-record lookup by CRID and, for books and journals, the libraries in NACSIS-CAT that hold them. Ask a question in English and get Japanese-language scholarship back, with the Japanese term actually sent shown beside the results.
 
 KAKEN repays separate attention — it records what was *funded*, so it surfaces projects underway, collaborations forming, and research that reached a grant report before it reached print.
 
@@ -52,12 +52,62 @@ receipts section below.
 | Tool | Purpose |
 | --- | --- |
 | `cinii_search_articles` | Journal articles (JALC, Crossref, PubMed, IRDB) |
-| `cinii_search_books` | Books and monographs (NACSIS-CAT, NDL Search) |
+| `cinii_search_books` | Books and monographs (NACSIS-CAT, NDL Search); lookup by NCID or ISBN |
 | `cinii_search_dissertations` | Doctoral dissertations from Japanese universities |
-| `cinii_search_kaken` | KAKEN (科研費) funded research projects |
+| `cinii_search_kaken` | KAKEN (科研費) funded research projects; lookup by project number |
 | `cinii_search_all` | Cross-type search across all content types |
+| `cinii_search_data` | Research data (DataCite, JDCAT, IRDB, data archives, KAKEN research data) |
+| `cinii_search_projects_and_products` | KAKEN projects together with their research products |
 | `cinii_search_researchers` | Researcher profiles and affiliations |
 | `cinii_get_record` | Single record lookup by URL or CRID |
+| `cinii_get_holdings` | Libraries holding a book or journal, by NCID (NACSIS-CAT) |
+| `cinii_search_libraries` | NACSIS-CAT member libraries by name, with their library IDs |
+
+### Filters
+
+The search tools take CiNii's own filters where the search type accepts them. Each is sent
+under CiNii's parameter name, given in brackets.
+
+- `language` (`languageType`): ISO 639-1 codes, comma-separated: `ja`, `en`, `zh`, `ko`.
+  It filters by the language catalogued for the record, which is how to put Japanese-language
+  scholarship first, or reach the Chinese and Korean work CiNii indexes. Not on researchers.
+- `has_fulltext` (`hasLinkToFullText`), `resource_type` (`resourceType`), `data_source`
+  (`dataSourceType`, now on every search tool) and `researcher_id` (`researcherId`: a KAKEN
+  researcher number, an NRID, a CiNii author ID or a researcher CRID).
+- Books: `ncid`, `category`, `exact_title` (`isFullTitle`). Dissertations: `award_institution`
+  (`awardInstitution`), `degree`. KAKEN: `project_id` (`projectId`). Data: `publication_title`,
+  `dataset_format`.
+- `sort` takes CiNii's eleven v2 sort orders, each where CiNii accepts it: `NEWEST`, `OLDEST`
+  and `RELEVANCE` everywhere (no `OLDEST` for researchers); `CITATIONS_DESC` on articles;
+  `CRID_ASC` on the cross search; `NAME_ASC`/`NAME_DESC`, `PROJECTS_DESC`/`PROJECTS_ASC` and
+  `PRODUCTS_DESC`/`PRODUCTS_ASC` on researchers.
+
+Three of these are checked here before anything is sent: a sort outside its search type, an
+unknown `data_source` and a malformed language code. CiNii refuses none of them. It ignores an
+out-of-scope sort and returns relevance order under the sort the caller asked for, and it
+answers an unknown source with zero records, which would read as an absence.
+
+`query` is optional when another criterion is given, so a book can be looked up by `ncid`
+alone and a grant by `project_id`. The envelope then records the criteria as sent
+(`ncid=BC08431161`) in place of a search term, and no `SCRIPT_LATIN_QUERY` is raised.
+
+### Holdings
+
+`cinii_get_holdings` lists the libraries that have registered a holding of a title in
+NACSIS-CAT, through the endpoint CiNii Research opened on 30 March 2026 when it absorbed CiNii
+Books. Each item names the library, its NACSIS-CAT library ID (`extra.library_id`) and, where
+the library supplies one, a link into its own catalogue for that title (`extra.catalog_url`).
+Filters narrow the list to one library, to libraries taking ILL, copy or loan requests, to
+members of Japan–US or Japan–Korea ILL, or (journals) to libraries holding a given year,
+volume or number. CiNii returns the whole list in one response; `count` and `start` cut the
+window here and `result.total` keeps CiNii's count.
+
+NACSIS-CAT is a union catalogue of the libraries that catalogue in it, chiefly Japanese
+university and research libraries with some overseas ones. It is not a census of copies, so an
+empty list is `HOLDINGS_NONE_REGISTERED`, not an absence. `cinii_search_libraries` finds a
+library's ID by name. Names are catalogued in Japanese with some alternatives, so `SOAS`
+finds ロンドン大学 SOAS図書館 (FA013006). Holdings receipts carry no `result_ids`, because a
+library ID is not among the identifiers the family's receipt records.
 
 Results come from the CiNii Research OpenSearch v2 API as JSON-LD and are returned as one typed JSON response envelope — see [Response format](#response-format) below. (Releases before v2.0.1 returned formatted markdown text; that is a breaking change, not a formatting preference.)
 
@@ -85,7 +135,9 @@ Typed and closed. A diagnostic is never prose the client has to parse.
 | `ZERO_CONJUNCTION` | warning | No records. CiNii matches catalogued metadata and ANDs a multi-word query, so an un-indexed compound returns zero even where related work exists. Vary the rendering before concluding the literature is absent. |
 | `SCRIPT_LATIN_QUERY` | warning | The query was Latin-script, so it matched romanised and English metadata only. The Japanese-script form reaches a different, larger corpus. |
 | `RECORD_UNREADABLE` | warning | One or more records on the page had fields of the wrong type and could not be read. They are left out and named by position and identifier; the other records are complete. A malformed record is not an absent one. |
-| `API_ERROR` | error | The API answered, and answered with an error. |
+| `HOLDINGS_NONE_REGISTERED` | warning | `cinii_get_holdings` only. No library has registered a holding of this NCID in NACSIS-CAT, under the filters given. A statement about the union catalogue, not about the world's libraries. |
+| `LIBRARY_NONE_MATCHED` | warning | `cinii_search_libraries` only. No member library matched the name; names are catalogued in Japanese. |
+| `API_ERROR` | error | The API answered, and answered with an error. This includes an HTML page served with status 200, which CiNii sends for some malformed requests. |
 | `TRANSPORT_ERROR` | error | The request did not complete. Kept distinct from `API_ERROR` because a failed search has an unknown result and must never be written up as an absence. |
 | `RECEIPT_NOT_DEPOSITED` | info | The response was not written to the query ledger, because no receipts destination is configured. The search is unaffected; no receipt survives it. |
 | `RECEIPT_WRITE_FAILED` | warning | A receipts destination is set, the write was attempted, and it did not land. Distinct from the line above because one is a choice and the other is a fault. |
@@ -173,16 +225,16 @@ official installers include.
 
 ### One click: the Claude Desktop bundle
 
-Download `cinii-mcp-3.1.2.mcpb` from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. One bundle serves Windows, macOS (Apple Silicon and Intel) and Linux. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain.
+Download `cinii-mcp-3.2.0.mcpb` from the [latest release](https://github.com/ckgerteis/cinii-mcp/releases/latest) and open it; Claude Desktop installs it. One bundle serves Windows, macOS (Apple Silicon and Intel) and Linux. Claude Desktop asks for CiNii application ID and a receipts folder at install time; the key is stored in the OS keychain.
 
 The bundle carries the server's source and a lock file, nothing compiled, and needs no Python of its own. Claude Desktop builds the bundle's environment when you install it, with [uv](https://docs.astral.sh/uv/), a copy already on your PATH if there is one and otherwise one the app downloads for itself: uv takes a Python 3.10 to 3.14 already on the machine, downloads one only if there is none, and installs the locked libraries, roughly 40 MB, behind the install progress bar. Every launch then reuses that environment and takes under a second. Bundles 3.1.0 and 3.1.1 kept `pyproject.toml` one folder down, which made Claude Desktop skip that install step and download everything during the first connection attempt instead; on a slow or filtered network that attempt never completed and the app reported it could not connect to the extension server. Bundles before 3.1.0 vendored libraries compiled for CPython 3.12 only and failed on every other interpreter. See [Troubleshooting](#troubleshooting).
 
 ### From GitHub, pinned to a release
 
 ```bash
-pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.1.2"
+pip install "git+https://github.com/ckgerteis/cinii-mcp@v3.2.0"
 # or, without an environment of your own:
-uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.1.2" cinii-mcp
+uvx --from "git+https://github.com/ckgerteis/cinii-mcp@v3.2.0" cinii-mcp
 ```
 
 installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the thing to cite; `@main` gets whatever is current. Then register it in Claude Desktop (below), or let `install.py` do that.
@@ -190,7 +242,7 @@ installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the t
 ### The whole family
 
 ```bash
-pip install "git+https://github.com/ckgerteis/bibliograph-mcp@v1.0.4" && bibliograph install
+pip install "git+https://github.com/ckgerteis/bibliograph-mcp@v1.0.5" && bibliograph install
 ```
 
 installs all six servers and registers them together — one receipts folder, credentials asked for once. See [bibliograph-mcp](https://github.com/ckgerteis/bibliograph-mcp). From a checkout of this repository, `python install.py` does the same for this server alone, `python install.py --all` for the six, on Windows, macOS and Linux; `install.ps1` remains for Windows.
@@ -343,7 +395,7 @@ into. On macOS or Linux use the absolute path to `.venv/bin/cinii-mcp`.
 start this version, because `server.py` is now a module inside a package rather
 than a script beside its imports. Replace it with the console script above.
 
-Restart Claude Desktop. The seven tools should appear under "cinii" in the
+Restart Claude Desktop. The eleven tools should appear under "cinii" in the
 tool list.
 
 ## Usage rules
