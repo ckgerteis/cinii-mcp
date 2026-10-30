@@ -242,3 +242,17 @@ def test_library_search(wire):
     wire["body"] = json.dumps(_graph([]))
     _, codes = _run(S.cinii_search_libraries(S.LibrarySearchInput(name="nowhere")))
     assert codes[0] == "LIBRARY_NONE_MATCHED"
+
+
+def test_book_result_carries_ncid_and_isbn_for_holdings(wire):
+    """A book found by search can go straight to cinii_get_holdings."""
+    wire["body"] = json.dumps({"opensearch:totalResults": 1, "items": [{
+        "@id": "https://cir.nii.ac.jp/crid/1970867909818762535", "title": "Mobilizing Japanese youth",
+        "dc:type": "Book", "dc:publisher": "Cornell University Press",
+        "dc:identifier": [{"@type": "cir:NCID", "@value": "BC08431161"},
+                          {"@type": "cir:ISBN", "@value": "9781501756313"},
+                          {"@type": "cir:URI", "@value": "https://ci.nii.ac.jp/ncid/BC08431161#entity"}]}]})
+    env, _ = _run(S.cinii_search_books(S.BookSearchInput(query="Mobilizing Japanese youth")))
+    ex = env["items"][0]["extra"]
+    assert ex["ncid"] == "BC08431161" and ex["isbn"] == ["9781501756313"]
+    assert S.HoldingsInput(ncid=ex["ncid"]).ncid == "BC08431161"

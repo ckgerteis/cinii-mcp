@@ -34,6 +34,9 @@ under 3.2.0, so its receipt hash is unchanged.
   honours it on. An out-of-scope sort, an unknown `data_source` and a malformed
   language code are refused before sending, because CiNii answers each with a
   plausible page rather than an error.
+- **Book results carry their NCID and ISBN** in `extra.ncid` and
+  `extra.isbn`, read from the record's `dc:identifier`, so a book found by
+  `cinii_search_books` can go straight to `cinii_get_holdings`.
 - **`query` is optional** where another criterion is given (an NCID, a project
   number, a researcher ID). The envelope records the criteria as sent.
 - **Mixed searches type each record** from its own `dc:type`: `cinii_search_all`

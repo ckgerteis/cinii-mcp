@@ -469,7 +469,22 @@ def _item_from_cinii(raw: dict, record_type: str, per_item_type: bool = False) -
         url_ja=link,
         matched_in="metadata",
         record_type=record_type,
+        extra=_book_ids(raw),
     )
+
+
+def _book_ids(raw: dict) -> dict:
+    """NCID and ISBN from dc:identifier ({"@type": "cir:NCID", ...}). They were
+    dropped, so a book found by search could not be passed to
+    cinii_get_holdings without a cinii_get_record call in between."""
+    out: dict = {}
+    ids = raw.get("dc:identifier")
+    for kind, key in (("cir:NCID", "ncid"), ("cir:ISBN", "isbn")):
+        vals = [str(e["@value"]) for e in (ids if isinstance(ids, list) else [])
+                if isinstance(e, dict) and e.get("@type") == kind and e.get("@value")]
+        if vals:
+            out[key] = vals[0] if key == "ncid" and len(vals) == 1 else vals
+    return out
 
 
 # A record whose fields have the wrong types (a string where an object

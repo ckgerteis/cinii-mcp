@@ -95,7 +95,8 @@ alone and a grant by `project_id`. The envelope then records the criteria as sen
 
 `cinii_get_holdings` lists the libraries that have registered a holding of a title in
 NACSIS-CAT, through the endpoint CiNii Research opened on 30 March 2026 when it absorbed CiNii
-Books. Each item names the library, its NACSIS-CAT library ID (`extra.library_id`) and, where
+Books. Book results from `cinii_search_books` carry the NCID (`extra.ncid`) and ISBNs (`extra.isbn`)
+to pass here. Each item names the library, its NACSIS-CAT library ID (`extra.library_id`) and, where
 the library supplies one, a link into its own catalogue for that title (`extra.catalog_url`).
 Filters narrow the list to one library, to libraries taking ILL, copy or loan requests, to
 members of Japan–US or Japan–Korea ILL, or (journals) to libraries holding a given year,
