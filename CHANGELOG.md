@@ -7,7 +7,7 @@ the text and, where a version DOI exists, cited by it.
 Releases earlier than those below are on the repository's releases page; this
 file begins where the record is precise enough to be worth writing down.
 
-## Unreleased (proposed 3.3.0)
+## 3.3.0 — 2026-10-30
 
 **CiNii's 2025–26 API additions, and one filter that never worked.** Every
 existing call that uses none of the new inputs sends exactly what it sent
