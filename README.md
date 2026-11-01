@@ -243,10 +243,10 @@ installs the `cinii-mcp` console script and `cinii-mcp-ledger`. The tag is the t
 ### The whole family
 
 ```bash
-pip install "git+https://github.com/ckgerteis/bibliograph-mcp@v1.0.6" && bibliograph install
+pip install "git+https://github.com/ckgerteis/bibliograph-mcp@v2.0.0" && bibliograph install
 ```
 
-installs all six servers and registers them together — one receipts folder, credentials asked for once. See [bibliograph-mcp](https://github.com/ckgerteis/bibliograph-mcp). From a checkout of this repository, `python install.py` does the same for this server alone, `python install.py --all` for the six, on Windows, macOS and Linux; `install.ps1` remains for Windows.
+installs [bibliograph-mcp](https://github.com/ckgerteis/bibliograph-mcp), one server that carries this server's CiNii tools, under the same names, alongside the rest of the family's (CiNii, J-STAGE, NDL, KCI and Open Access Korea, OpenAlex, Semantic Scholar) and sources that have no repository of their own (NDL Digital Collections full text, WARP, Crossref, Japanese name resolution, open-access PDF fetching), with one receipts folder and each credential asked for once. Since bibliograph 2.0.0 its sources are maintained in that package and may be ahead of this repository; `bibliograph_status` names the version of each. Register this server or bibliograph, not both, or Claude Desktop lists these tools twice. From a checkout of this repository, `python install.py` installs this server alone and `python install.py --all` the six separate servers, on Windows, macOS and Linux; `install.ps1` remains for Windows.
 
 ### From source
 
