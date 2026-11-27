@@ -1,5 +1,5 @@
 """
-mediation.py — unified response envelope for the whole server family (v2.3.0).
+mediation.py — unified response envelope for the whole server family (v2.4.0).
 
 One file, vendored byte-identical into cinii-mcp, jstage-mcp, ndl-mcp and
 korea-scholarship-mcp. Until 19 Aug 2026 there were **two** files both calling
@@ -36,7 +36,14 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-SCHEMA_VERSION = "2.3.0"
+SCHEMA_VERSION = "2.4.0"
+
+# The release of the server that issued a receipt. Each server sets this to its
+# own __version__ at import; it is stamped into every receipt so that a saved
+# receipt names the release that produced it without the reader having to
+# reconstruct which version was installed on the day. It is not part of the
+# query hash, so a hash is comparable across releases.
+SERVER_VERSION: Optional[str] = None
 
 # Unicode blocks used for script detection.
 _HIRA = (0x3040, 0x309F)
@@ -261,11 +268,14 @@ def make_receipt(normalized: str, params: dict, items: list[dict]) -> dict:
         )
         if ident:
             ids.append(ident)
-    return {
+    receipt = {
         "issued_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "query_hash": qhash,
         "result_ids": ids,
     }
+    if SERVER_VERSION:
+        receipt["server_version"] = SERVER_VERSION
+    return receipt
 
 
 def build_envelope(

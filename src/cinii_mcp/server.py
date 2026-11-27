@@ -35,7 +35,8 @@ except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
 
 from . import mediation as M
 
-__version__ = "3.3.0"
+__version__ = "3.3.1"
+M.SERVER_VERSION = __version__
 
 
 def _silence_http_logging() -> None:
@@ -390,7 +391,7 @@ def _item_from_record(d: dict) -> dict:
         year = int(mm.group(1)) if mm else None
 
     doi_v = d.get("prism:doi")
-    doi = _lit(doi_v) if doi_v else None
+    doi = _lit(doi_v) if doi_v else _doi_from_identifier(d)
     at = d.get("@id") or ""
     crid = at.split("/crid/")[-1].replace(".json", "").strip("/") if "/crid/" in at else None
     url = at.replace(".json", "") if at else None
@@ -404,6 +405,20 @@ def _item_from_record(d: dict) -> dict:
         year=year, doi=doi, crid=crid, naid=naid, issn=issn, url_ja=url,
         matched_in="metadata", record_type=record_type,
     )
+
+
+def _doi_from_identifier(raw: dict) -> Optional[str]:
+    """The DOI CiNii carries in dc:identifier ({"@type": "cir:DOI", ...}).
+
+    CiNii's search results put the DOI there and leave prism:doi empty, so a
+    reader of prism:doi alone reported every searched article as having no DOI
+    (all 90 records of 在日コリアン アイデンティティ, live, 27 Nov 2026), and a
+    script that matched by DOI reported a present record absent (October 2026)."""
+    ids = raw.get("dc:identifier")
+    for e in ids if isinstance(ids, list) else []:
+        if isinstance(e, dict) and e.get("@type") == "cir:DOI" and e.get("@value"):
+            return str(e["@value"])
+    return None
 
 
 def _first(v):
@@ -439,7 +454,7 @@ def _item_from_cinii(raw: dict, record_type: str, per_item_type: bool = False) -
     ym = re.search(r"(\d{4})", str(date))
     year = int(ym.group(1)) if ym else None
 
-    doi = _first(raw.get("prism:doi"))
+    doi = _first(raw.get("prism:doi")) or _doi_from_identifier(raw)
     link = raw.get("@id") or (raw.get("link", {}) or {}).get("@id")
     crid = link.split("/crid/")[-1].strip("/") if (link and "/crid/" in link) else None
 
