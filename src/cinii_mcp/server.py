@@ -36,6 +36,7 @@ except ModuleNotFoundError:  # mcp SDK 2.x removed mcp.server.fastmcp
 from . import mediation as M
 
 __version__ = "3.3.0"
+M.SERVER_VERSION = __version__
 
 
 def _silence_http_logging() -> None:

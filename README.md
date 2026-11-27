@@ -114,7 +114,7 @@ Results come from the CiNii Research OpenSearch v2 API as JSON-LD and are return
 
 ## Response format
 
-Every tool returns one JSON response envelope, built by `mediation.py` and defined in [`response-schema.json`](response-schema.json). Schema version 2.3.0. The same module and schema are vendored byte-identically across the server family, so an envelope from one server can be read by a consumer written for another.
+Every tool returns one JSON response envelope, built by `mediation.py` and defined in [`response-schema.json`](response-schema.json). Schema version 2.4.0; since 2.4.0 every receipt names the server release that issued it (`receipt.server_version`), outside the query hash. The same module and schema are vendored byte-identically across the server family, so an envelope from one server can be read by a consumer written for another.
 
 The envelope reports how the search was made, not only what it found:
 
