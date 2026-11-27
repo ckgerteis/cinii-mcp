@@ -7,6 +7,26 @@ the text and, where a version DOI exists, cited by it.
 Releases earlier than those below are on the repository's releases page; this
 file begins where the record is precise enough to be worth writing down.
 
+## 3.3.1 — 2026-11-27
+
+**Every receipt names the server release that issued it.** `receipt.server_version`
+(response schema 2.4.0) carries this package's `__version__`, so a saved
+receipt says which release produced it without anyone having to reconstruct
+what was installed on the day. It is outside the query hash: a hash issued
+under an earlier release still matches the same query under this one.
+`mediation.py` and `response-schema.json` change together and stay
+byte-identical across cinii-mcp, jstage-mcp and ndl-mcp; the other servers of
+the family are still on schema 2.3.0 until they take the same change.
+
+**CiNii search results carry their DOI.** CiNii puts the DOI of a searched
+record in `dc:identifier` (`cir:DOI`) and leaves `prism:doi` empty; the server
+read only `prism:doi`, so every searched article came back with `ids.doi`
+null — none of the 90 records under 在日コリアン アイデンティティ had one, where
+33 do (live, 27 Nov 2026). `prism:doi` still wins when present. Because a
+receipt lists a record by its DOI before its CRID, receipts of CiNii searches
+now list DOI-bearing records by DOI; the query hash is unchanged. Match a CiNii
+record across releases by `ids.crid`.
+
 ## 3.3.0 — 2026-10-30
 
 **CiNii's 2025–26 API additions, and one filter that never worked.** Every
